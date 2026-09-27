@@ -1,0 +1,30 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "CreateTheKeyUnderTest",
+      "Effect": "Allow",
+      "Action": [
+        "kms:CreateKey", "kms:ListAliases", "kms:ListKeys"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ManageTheKeyUnderTest",
+      "Effect": "Allow",
+      "Action": [
+        "kms:DescribeKey", "kms:GetKeyPolicy", "kms:PutKeyPolicy",
+        "kms:GetKeyRotationStatus", "kms:EnableKeyRotation", "kms:DisableKeyRotation",
+        "kms:EnableKey", "kms:DisableKey", "kms:UpdateKeyDescription",
+        "kms:ListResourceTags", "kms:TagResource", "kms:UntagResource",
+        "kms:CreateAlias", "kms:DeleteAlias", "kms:UpdateAlias",
+        "kms:CreateGrant", "kms:ListGrants", "kms:RevokeGrant", "kms:RetireGrant",
+        "kms:ScheduleKeyDeletion", "kms:CancelKeyDeletion"
+      ],
+      "Resource": [
+        "arn:aws:kms:*:<ACCOUNT_ID>:key/*",
+        "arn:aws:kms:*:<ACCOUNT_ID>:alias/ksm-it-*"
+      ]
+    }
+  ]
+}

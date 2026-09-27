@@ -1,0 +1,6 @@
+# tests/integration/setup is short-lived fixture infrastructure created and
+# destroyed by the integration suites in the caller's own account; it is not a
+# deployable pattern and is excluded from misconfiguration scanning.
+scan:
+  skip-dirs:
+    - tests/integration/setup

@@ -1,4 +1,4 @@
-name: Terraform module quality
+name: terraform-quality
 
 on:
   pull_request:
@@ -9,31 +9,25 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  validate:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
-
-      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
-        with:
-          terraform_version: 1.7.5
-          terraform_wrapper: false
-
-      - name: Format, validate, and mock-test every module
-        shell: bash
-        run: |
-          set -euo pipefail
-          terraform fmt -check -recursive -no-color
-          while IFS= read -r directory; do
-            terraform -chdir="$directory" init -backend=false -input=false -lockfile=readonly -no-color
-            # A reusable module that declares configuration_aliases is tested
-            # with its explicit provider alias supplied by the test file. A
-            # standalone validate cannot provide that alias.
-            if ! grep -q 'configuration_aliases' "$directory/versions.tf"; then
-              terraform -chdir="$directory" validate -no-color
-            fi
-            if [[ -d "$directory/tests" ]] && compgen -G "$directory/tests/*.tftest.hcl" >/dev/null; then
-              terraform -chdir="$directory" test -no-color
-            fi
-          done < <(find . -path './.terraform' -prune -o -name versions.tf -print | xargs -n1 dirname | sort)
+  quality:
+    strategy:
+      fail-fast: false
+      matrix:
+        directory:
+          - .
+          - modules/key-policy
+          - modules/replica
+          - examples/minimal
+          - examples/complete
+          - examples/multi-region
+          - examples/asymmetric-signing
+          - examples/multiple-keys
+    uses: hatan4ik/terraform-pipelines/.github/workflows/terraform-quality.yml@838da070a7e33ed2911ad3768ba3d00cccc9a5d9 # v0.1.0
+    with:
+      working_directory: ${{ matrix.directory }}
+      check_docs: true
