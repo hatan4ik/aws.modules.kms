@@ -27,7 +27,7 @@ jobs:
           - examples/multi-region
           - examples/asymmetric-signing
           - examples/multiple-keys
-    uses: hatan4ik/terraform-pipelines/.github/workflows/terraform-quality.yml@838da070a7e33ed2911ad3768ba3d00cccc9a5d9 # v0.1.0
+    uses: hatan4ik/terraform-pipelines/.github/workflows/terraform-quality.yml@8fc2a04c7931dd449097bb92b15b085278e3f67a # v0.1.1
     with:
       working_directory: ${{ matrix.directory }}
       check_docs: true
