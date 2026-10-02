@@ -231,3 +231,50 @@ run "rejects_administrator_that_is_not_an_iam_principal_arn" {
 
   expect_failures = [var.key_administrator_arns]
 }
+
+run "rejects_policy_override_without_statement_element" {
+  command = plan
+
+  variables {
+    policy_json_override = jsonencode({ Version = "2012-10-17" })
+  }
+
+  expect_failures = [var.policy_json_override]
+}
+
+run "warns_when_the_policy_lockout_safety_check_is_bypassed" {
+  command = plan
+
+  variables {
+    bypass_policy_lockout_safety_check = true
+  }
+
+  expect_failures = [check.policy_lockout_safety_check_bypassed]
+}
+
+run "truncates_a_long_description_to_the_tag_value_limit" {
+  command = plan
+
+  variables {
+    description = join("", [for i in range(300) : "d"])
+  }
+
+  assert {
+    condition     = length(aws_kms_replica_key.this.tags["Name"]) == 256 && length(aws_kms_replica_key.this.description) == 300
+    error_message = "A description longer than 256 characters must be truncated in the Name tag (the AWS tag value limit) and kept whole as the replica description."
+  }
+}
+
+run "grants_the_use_actions_of_the_declared_key_usage" {
+  command = plan
+
+  variables {
+    key_usage     = "GENERATE_VERIFY_MAC"
+    key_user_arns = ["arn:aws:iam::123456789012:role/mac"]
+  }
+
+  assert {
+    condition     = jsondecode(aws_kms_replica_key.this.policy).Statement[1].Action == ["kms:DescribeKey", "kms:GenerateMac", "kms:VerifyMac"]
+    error_message = "The replica policy must grant the use actions of the declared key_usage, which must match the primary's."
+  }
+}

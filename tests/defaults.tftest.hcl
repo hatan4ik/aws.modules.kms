@@ -156,3 +156,26 @@ run "warns_when_a_symmetric_key_does_not_rotate" {
 
   expect_failures = [check.rotation_disabled_for_symmetric_key]
 }
+
+run "warns_when_the_policy_lockout_safety_check_is_bypassed" {
+  command = plan
+
+  variables {
+    bypass_policy_lockout_safety_check = true
+  }
+
+  expect_failures = [check.policy_lockout_safety_check_bypassed]
+}
+
+run "truncates_a_long_description_to_the_tag_value_limit" {
+  command = plan
+
+  variables {
+    description = join("", [for i in range(300) : "d"])
+  }
+
+  assert {
+    condition     = length(aws_kms_key.this.tags["Name"]) == 256 && length(aws_kms_key.this.description) == 300
+    error_message = "A description longer than 256 characters must be truncated in the Name tag (the AWS tag value limit) and kept whole as the key description."
+  }
+}

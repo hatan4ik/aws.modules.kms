@@ -8,7 +8,9 @@ locals {
   partition             = local.primary_key_arn_parts[1]
   account_id            = local.primary_key_arn_parts[4]
 
-  name   = length(var.aliases) > 0 ? sort(tolist(var.aliases))[0] : var.description
+  # AWS caps tag values at 256 characters while description allows 8192, so
+  # the description is truncated when it stands in for the Name tag.
+  name   = length(var.aliases) > 0 ? sort(tolist(var.aliases))[0] : substr(var.description, 0, 256)
   policy = var.policy_json_override != null ? var.policy_json_override : module.key_policy[0].json
 }
 
