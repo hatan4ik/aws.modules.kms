@@ -3,6 +3,7 @@ mock_provider "aws" {}
 variables {
   primary_key_arn = "arn:aws:kms:us-east-1:123456789012:key/mrk-0123456789abcdef0123456789abcdef"
   description     = "orders data key replica"
+  key_usage       = "ENCRYPT_DECRYPT"
   tags            = { Environment = "test", Owner = "platform" }
 }
 

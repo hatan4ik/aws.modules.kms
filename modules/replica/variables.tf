@@ -78,9 +78,8 @@ variable "aliases" {
 # ---------------------------------------------------------------------------
 
 variable "key_usage" {
-  description = "Cryptographic usage of the primary key: ENCRYPT_DECRYPT, SIGN_VERIFY, GENERATE_VERIFY_MAC, or KEY_AGREEMENT. A replica inherits it from the primary; the module uses it only to select the use actions granted in the policy."
+  description = "Cryptographic usage of the primary key: ENCRYPT_DECRYPT, SIGN_VERIFY, GENERATE_VERIFY_MAC, or KEY_AGREEMENT. Required, with no default: a replica always inherits the primary's real usage, and this input only selects the use actions the replica policy grants, so a wrong value is accepted by KMS and surfaces only when the replica is used. Pass the primary's value, for example module.primary.key_usage."
   type        = string
-  default     = "ENCRYPT_DECRYPT"
   nullable    = false
 
   validation {
