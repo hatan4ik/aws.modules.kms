@@ -145,8 +145,8 @@ variable "policy_json_override" {
   default     = null
 
   validation {
-    condition     = var.policy_json_override == null ? true : can(jsondecode(var.policy_json_override))
-    error_message = "policy_json_override must be a valid JSON document."
+    condition     = var.policy_json_override == null ? true : can(jsondecode(var.policy_json_override).Statement)
+    error_message = "policy_json_override must be a JSON policy document with a Statement element."
   }
 }
 
@@ -181,6 +181,8 @@ variable "key_user_arns" {
   }
 }
 
+# Validated by modules/key-policy, the single owner of the policy rules, so
+# the root and replica cannot drift from the renderer or from each other.
 variable "key_service_principals" {
   description = "AWS service principals that may use the key, keyed by principal (for example logs.us-east-1.amazonaws.com). actions defaults to the use actions of key_usage; conditions restrict the grant, for example an ArnLike on kms:EncryptionContext:aws:logs:arn."
   type = map(object({
@@ -193,23 +195,10 @@ variable "key_service_principals" {
   }))
   default  = {}
   nullable = false
-
-  validation {
-    condition     = alltrue([for principal in keys(var.key_service_principals) : can(regex("^[a-z0-9][a-z0-9.-]*\\.amazonaws\\.com(\\.cn)?$", principal))])
-    error_message = "Every key_service_principals key must be an AWS service principal such as logs.amazonaws.com or logs.<region>.amazonaws.com."
-  }
-
-  validation {
-    condition     = alltrue([for entry in values(var.key_service_principals) : entry.actions == null ? true : length(entry.actions) > 0])
-    error_message = "key_service_principals actions, when set, must list at least one action."
-  }
-
-  validation {
-    condition     = alltrue([for entry in values(var.key_service_principals) : length(distinct([for condition in entry.conditions : "${condition.test}:${condition.variable}"])) == length(entry.conditions) && alltrue([for condition in entry.conditions : length(condition.values) > 0])])
-    error_message = "key_service_principals conditions must be unique per test and variable, and every condition must list at least one value."
-  }
 }
 
+# Validated by modules/key-policy, the single owner of the policy rules, so
+# the root and replica cannot drift from the renderer or from each other.
 variable "policy_statements" {
   description = "Additional key policy statements keyed by Sid (1-100 alphanumerics, not a generated Sid). principals maps AWS, Service, Federated, or CanonicalUser to identifiers; resources defaults to the key itself; an Allow to a wildcard principal must carry a condition."
   type = map(object({
@@ -225,41 +214,6 @@ variable "policy_statements" {
   }))
   default  = {}
   nullable = false
-
-  validation {
-    condition     = alltrue([for sid in keys(var.policy_statements) : can(regex("^[A-Za-z0-9]{1,100}$", sid))])
-    error_message = "Every policy_statements key is a Sid and must be 1-100 letters or digits."
-  }
-
-  validation {
-    condition     = alltrue([for sid in keys(var.policy_statements) : !contains(["EnableRootAccess", "AllowKeyAdministration", "AllowKeyUse", "AllowAttachmentOfPersistentResources"], sid) && !startswith(sid, "AllowServiceUse")])
-    error_message = "policy_statements may not reuse a generated Sid: EnableRootAccess, AllowKeyAdministration, AllowKeyUse, AllowAttachmentOfPersistentResources, or AllowServiceUse*."
-  }
-
-  validation {
-    condition     = alltrue([for statement in values(var.policy_statements) : contains(["Allow", "Deny"], statement.effect)])
-    error_message = "policy_statements effect must be Allow or Deny."
-  }
-
-  validation {
-    condition     = alltrue([for statement in values(var.policy_statements) : length(statement.principals) > 0 && alltrue([for type, identifiers in statement.principals : contains(["AWS", "Service", "Federated", "CanonicalUser"], type) && length(identifiers) > 0])])
-    error_message = "policy_statements principals must map at least one of AWS, Service, Federated, or CanonicalUser to at least one identifier."
-  }
-
-  validation {
-    condition     = alltrue([for statement in values(var.policy_statements) : length(statement.actions) > 0 && length(statement.resources) > 0])
-    error_message = "policy_statements actions and resources must each list at least one entry."
-  }
-
-  validation {
-    condition     = alltrue([for statement in values(var.policy_statements) : length(distinct([for condition in statement.conditions : "${condition.test}:${condition.variable}"])) == length(statement.conditions) && alltrue([for condition in statement.conditions : length(condition.values) > 0])])
-    error_message = "policy_statements conditions must be unique per test and variable, and every condition must list at least one value."
-  }
-
-  validation {
-    condition     = alltrue([for statement in values(var.policy_statements) : statement.effect == "Deny" ? true : (anytrue([for identifiers in values(statement.principals) : contains(identifiers, "*")]) ? length(statement.conditions) > 0 : true)])
-    error_message = "An Allow statement whose principals include * must carry at least one condition, otherwise anyone could use the key."
-  }
 }
 
 # ---------------------------------------------------------------------------

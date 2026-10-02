@@ -118,36 +118,36 @@ variable "statements" {
 
   validation {
     condition     = alltrue([for sid in keys(var.statements) : can(regex("^[A-Za-z0-9]{1,100}$", sid))])
-    error_message = "Every statements key is a Sid and must be 1-100 letters or digits."
+    error_message = "Every statements key (policy_statements in the root and replica modules) is a Sid and must be 1-100 letters or digits."
   }
 
   validation {
     condition     = alltrue([for sid in keys(var.statements) : !contains(["EnableRootAccess", "AllowKeyAdministration", "AllowKeyUse", "AllowAttachmentOfPersistentResources"], sid) && !startswith(sid, "AllowServiceUse")])
-    error_message = "statements may not reuse a generated Sid: EnableRootAccess, AllowKeyAdministration, AllowKeyUse, AllowAttachmentOfPersistentResources, or AllowServiceUse*."
+    error_message = "statements (policy_statements in the root and replica modules) may not reuse a generated Sid: EnableRootAccess, AllowKeyAdministration, AllowKeyUse, AllowAttachmentOfPersistentResources, or AllowServiceUse*."
   }
 
   validation {
     condition     = alltrue([for statement in values(var.statements) : contains(["Allow", "Deny"], statement.effect)])
-    error_message = "statements effect must be Allow or Deny."
+    error_message = "statements (policy_statements in the root and replica modules) effect must be Allow or Deny."
   }
 
   validation {
     condition     = alltrue([for statement in values(var.statements) : length(statement.principals) > 0 && alltrue([for type, identifiers in statement.principals : contains(["AWS", "Service", "Federated", "CanonicalUser"], type) && length(identifiers) > 0])])
-    error_message = "statements principals must map at least one of AWS, Service, Federated, or CanonicalUser to at least one identifier."
+    error_message = "statements (policy_statements in the root and replica modules) principals must map at least one of AWS, Service, Federated, or CanonicalUser to at least one identifier."
   }
 
   validation {
     condition     = alltrue([for statement in values(var.statements) : length(statement.actions) > 0 && length(statement.resources) > 0])
-    error_message = "statements actions and resources must each list at least one entry."
+    error_message = "statements (policy_statements in the root and replica modules) actions and resources must each list at least one entry."
   }
 
   validation {
     condition     = alltrue([for statement in values(var.statements) : length(distinct([for condition in statement.conditions : "${condition.test}:${condition.variable}"])) == length(statement.conditions) && alltrue([for condition in statement.conditions : length(condition.values) > 0])])
-    error_message = "statements conditions must be unique per test and variable, and every condition must list at least one value."
+    error_message = "statements (policy_statements in the root and replica modules) conditions must be unique per test and variable, and every condition must list at least one value."
   }
 
   validation {
     condition     = alltrue([for statement in values(var.statements) : statement.effect == "Deny" ? true : (anytrue([for identifiers in values(statement.principals) : contains(identifiers, "*")]) ? length(statement.conditions) > 0 : true)])
-    error_message = "An Allow statement whose principals include * must carry at least one condition, otherwise anyone could use the key."
+    error_message = "An Allow statement in statements (policy_statements in the root and replica modules) whose principals include * must carry at least one condition, otherwise anyone could use the key."
   }
 }
