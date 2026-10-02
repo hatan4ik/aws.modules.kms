@@ -48,7 +48,8 @@ resource "aws_kms_key" "this" {
 - Service principals. Each key is a service principal (`<service>.amazonaws.com` or a regional form). `actions` defaults to the use actions; `conditions` restrict the grant and are grouped by operator. The Sid is `AllowServiceUse` followed by the principal's alphanumeric tokens in title case (`logs.us-east-1.amazonaws.com` becomes `AllowServiceUseLogsUsEast1AmazonawsCom`).
 - Declared statements. The map key is the Sid (1 to 100 alphanumerics, not a generated Sid). `effect` defaults to `Allow`; `principals` maps `AWS`, `Service`, `Federated`, or `CanonicalUser` to identifiers; `resources` defaults to `["*"]`, the key itself; `conditions` are unique per operator and variable. An `Allow` whose principals include `*` must carry a condition.
 - Determinism. Principals, actions, resources, and condition values are sorted; principal types are sorted; conditions are grouped by operator; a statement without conditions renders no `Condition` block. Single values render as one-element lists, which the AWS provider treats as equivalent to strings, so the same inputs always produce the same JSON and no spurious diffs.
-- Validation. `account_id` is twelve digits, `partition` is `aws` or an `aws-<suffix>`, principal ARNs are IAM or STS principals, service principals end in `amazonaws.com` or `amazonaws.com.cn`, and every condition lists at least one value.
+- Validation. `account_id` is twelve digits, `partition` is `aws` or an `aws-<suffix>`, principal ARNs are IAM or STS principals, service principals end in `amazonaws.com` or `amazonaws.com.cn`, and every condition lists at least one value. This module is the single owner of the `statements` and `key_service_principals` rules: the root and `replica` modules pass `policy_statements` and `key_service_principals` through without validating them again, and the error names the line in the caller that passed the input.
+- Size. KMS rejects key policies over 32 KB (32,768 bytes). An output precondition fails the plan when the rendered document is larger, measured in UTF-8 bytes; `size_bytes` exposes the measurement.
 
 <!-- BEGIN_TF_DOCS -->
 ## Requirements
@@ -88,5 +89,6 @@ No resources.
 | Name | Description |
 |------|-------------|
 | <a name="output_json"></a> [json](#output\_json) | Rendered key policy document: sorted statements, sorted principals, actions, resources, and condition values, conditions grouped by operator, no empty blocks. |
+| <a name="output_size_bytes"></a> [size\_bytes](#output\_size\_bytes) | Size of the rendered policy in bytes (UTF-8), the measure KMS applies its 32 KB key policy limit to. |
 | <a name="output_statement_count"></a> [statement\_count](#output\_statement\_count) | Number of statements in the rendered policy. |
 <!-- END_TF_DOCS -->

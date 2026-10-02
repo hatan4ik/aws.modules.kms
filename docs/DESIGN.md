@@ -31,7 +31,7 @@ the key's identifiers for them to reference.
 | The key policy is either a raw `key_policy` JSON string or a root-only default. | Every consumer re-implements the AWS administrator and user statements by hand, differently; the module cannot validate or test what it applies; a mistake locks the key. | Typed policy inputs (`key_administrator_arns`, `key_user_arns`, `key_service_principals`, `policy_statements`) rendered by the pure `key-policy` submodule into a deterministic document. `policy_json_override` remains for callers who must supply the whole document. |
 | One optional alias through `alias_name`. | Keys commonly carry several aliases (a stable name and a versioned name); the `count`-indexed resource makes renaming an alias a replacement of `[0]`. | `aliases` is a set; each alias is `aws_kms_alias.this["<name>"]`, so adding or removing one never touches the others. |
 | No grants. | Services that use grants (EBS, RDS, Lambda, cross-account integrations) needed a second module or hand-written resources with unvalidated operation names. | A typed `grants` map with validated operations, encryption-context constraints, and a sensitive `grant_tokens` output. |
-| No multi-Region replicas. | `multi_region = true` created a primary that nothing could replicate. | `modules/replica` creates `aws_kms_replica_key` in the Region of the provider the caller passes, with the same policy inputs and aliases as the root. |
+| No multi-Region replicas. | `multi_region = true` created a primary that nothing could replicate. | `modules/replica` creates `aws_kms_replica_key` in the Region of the provider the caller passes, accepting the same *kinds* of policy inputs and aliases as the root. The values are the caller's to pass; nothing compares them with the primary's (see [Multi-Region policy parity](#multi-region-policy-parity)). |
 | No rotation period; `enable_key_rotation` accepted for every key spec. | Rotation on an asymmetric or HMAC key fails at apply time; the rotation period could not be shortened from the 365-day default. | `rotation_period_in_days` (90 to 2560) and a plan-time precondition that allows rotation only on `SYMMETRIC_DEFAULT` keys outside custom key stores. |
 | `key_usage` and `customer_master_key_spec` were free-form strings. | Incompatible combinations (an HMAC spec with `ENCRYPT_DECRYPT`, an ECC spec with `ENCRYPT_DECRYPT`) failed at apply time. | Both are validated enums and a precondition checks the AWS compatibility matrix at plan time. `customer_master_key_spec` is renamed `key_spec`, the name AWS uses today. |
 | Partition and account were always read through data sources. | Every plan performed two API reads, and a consumer that already knew the values could not pass them in. | `account_id` and `partition` are inputs. The data sources run only when an input is null, which is the one documented exception to the no-data-source rule. |
@@ -86,6 +86,40 @@ sources only as a fallback), hands them with the policy inputs to
 at all. Aliases and grants reference the key's `key_id`, so they are created
 after the key and destroyed before it.
 
+### Multi-Region policy parity
+
+A multi-Region primary and each of its replicas carry **independent** key
+policies. KMS does not copy the primary's policy to a replica and never
+compares them, and neither does this module: `modules/replica` receives its
+own policy inputs and cannot read the primary's without a lookup, which the
+replica deliberately does not perform. A replica whose policy differs from the
+primary's plans and applies cleanly; the difference shows up only when a
+principal uses the key in the replica's Region, usually during a failover.
+
+Keeping the policies in sync is therefore the caller's responsibility. The
+supported pattern, demonstrated by `examples/multi-region` and guarded by
+`tests/multi_region_example.tftest.hcl` (which applies the example against
+mock providers and requires the two rendered policies to be equal), is to
+declare `key_usage` and every policy input once in `locals` and pass the same
+values to the root and every replica call.
+
+`key_usage` on the replica has no default. A replica always has its primary's
+cryptographic usage; the input only selects which use actions the replica
+policy grants. A default of `ENCRYPT_DECRYPT` on a replica of a `SIGN_VERIFY`
+primary would grant Encrypt and Decrypt instead of Sign and Verify, which KMS
+accepts without complaint. Requiring the value makes every caller state it.
+
+### Validation ownership
+
+`modules/key-policy` is the single owner of the policy rules for
+`statements` and `key_service_principals`. The root and the replica pass
+`policy_statements` and `key_service_principals` through to it without
+re-validating them, so the three modules cannot drift apart; Terraform reports
+a failure against the caller's line that passes the input. Inputs that the
+renderer does not see or that the root and replica use for other purposes
+(principal ARNs, aliases, grants, `policy_json_override`) are validated where
+they are declared.
+
 ### Key policy renderer
 
 The renderer produces at most five kinds of statement, in this order, each
@@ -102,7 +136,10 @@ present only when its input is non-empty:
 
 The renderer requires at least one statement: a key policy with none is
 rejected by KMS and would lock the key. Statement Sids declared by the caller
-may not collide with the generated ones.
+may not collide with the generated ones. The rendered document must also fit
+the KMS key policy limit of 32 KB (32,768 bytes); the renderer measures it in
+UTF-8 bytes and fails the plan when it is larger, rather than letting KMS
+reject it at apply.
 
 ### Root interface (summary)
 
@@ -148,7 +185,14 @@ Outputs expose every identifier a caller may need: `key_id`, `arn`,
   administration without naming an administrator triggers an advisory
   `check`, because it is the standard way to lock a key.
 - `bypass_policy_lockout_safety_check` stays false: KMS verifies that the
-  caller can still administer the key before applying the policy.
+  caller can still administer the key before applying the policy. Setting it
+  to true raises the advisory `policy_lockout_safety_check_bypassed` check
+  (root and replica) on every plan and apply.
+- When the description stands in for the `Name` tag it is truncated to 256
+  characters, the AWS tag value limit, so a long but valid description never
+  fails at apply.
+- `policy_json_override` must parse as JSON and carry a `Statement` element,
+  matching `aws.modules.s3`.
 - Users receive only the use actions that their key type supports, and grant
   management only for AWS-resource grants (`kms:GrantIsForAWSResource`).
 - Service principals receive the use actions only under the conditions the
@@ -165,13 +209,18 @@ Outputs expose every identifier a caller may need: `key_id`, `arn`,
   is fully known.
 - `modules/key-policy/tests` cover the rendered document without any
   provider: defaults, each statement kind, condition grouping, sorting,
-  service-principal Sids, Sid collisions, and the no-statement precondition.
+  service-principal Sids, Sid collisions, every `statements` and
+  `key_service_principals` validation, the no-statement precondition, and the
+  32 KB size precondition.
 - `modules/replica/tests` cover the replica key, its derived partition and
   account, its aliases, and its validations.
 - Root `tests/` cover: secure defaults, every variable validation via
   `expect_failures`, policy composition through the root inputs, override
   exclusivity, the spec/usage matrix, rotation rules, aliases, grants, the
-  data-source fallback, and both advisory checks.
+  data-source fallback, and every advisory check.
+- `tests/multi_region_example.tftest.hcl` applies `examples/multi-region` against
+  mock providers and requires the primary's and the replica's policies to be
+  identical.
 - Every example is initialised and validated in CI; examples are the
   documentation's executable form.
 - Static policy: `tflint` with the AWS ruleset, Checkov, Trivy; generated
