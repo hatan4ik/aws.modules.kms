@@ -11,7 +11,7 @@ What you get without setting anything beyond `description`:
 - A key policy that grants administration to the account root only, rendered from typed inputs rather than a hand-written JSON string, so IAM policies in the account govern the key and every statement you add is validated before it reaches KMS.
 - The KMS policy lockout safety check left on: KMS refuses a policy under which the caller could no longer administer the key.
 - Plan-time validation of the key spec and usage matrix, rotation support, alias names, grant operations, principal ARNs, service principals, statement Sids, and every identifier, with messages that name the input to change.
-- Advisory `check` blocks that warn when root administration is disabled without a named administrator (a locked key) and when a symmetric key does not rotate.
+- Advisory `check` blocks that warn when root administration is disabled without a named administrator (a locked key), when the policy lockout safety check is bypassed, and when a symmetric key does not rotate.
 - No data-source reads when you pass `account_id` and `partition`; the lookups run only as a fallback when those are null.
 
 ## Quick start
@@ -62,6 +62,9 @@ The root resolves the account and partition (inputs first, lookups as a fallback
 | Grants | None until you declare `grants`. | One `aws_kms_grant` per entry with validated operations and encryption-context constraints. |
 | Replicas | None; the key is single-Region unless `multi_region = true`. | One `modules/replica` call with `providers = { aws = aws.<alias> }` per additional Region. |
 
+> [!WARNING]
+> **A multi-Region primary and each replica keep independent key policies.** KMS never copies the primary's policy to a replica or compares them, and neither does this module: `modules/replica` takes its own policy inputs, and a replica whose policy differs from the primary's plans and applies cleanly. The difference surfaces only when a principal uses the key in the other Region, typically during a failover. Keeping them in sync is the caller's responsibility: declare `key_usage` and every policy input (`enable_root_administration`, `key_administrator_arns`, `key_user_arns`, `key_service_principals`, `policy_statements`, or `policy_json_override`) once in `locals` and pass the same values to the root and to every replica, as [`examples/multi-region`](examples/multi-region) does. `key_usage` is a required input of the replica module, with no default, because a replica always has its primary's usage and a mismatched value grants the wrong use actions without any error.
+
 ## Usage patterns
 
 | Example | What it shows |
@@ -80,7 +83,9 @@ Policy
 - `enable_root_administration = false` removes the root statement. Do it only with `key_administrator_arns` set; the `root_administration_disabled` check warns otherwise, because that is the standard way to lock a key. A policy with no statements at all is rejected before it reaches KMS.
 - An `Allow` statement whose principals include `*` must carry a condition. `Deny` statements may name `*` freely, which is how an organization-wide deny is written (see `examples/complete`).
 - Every principal ARN must be an IAM or STS principal; every service principal must end in `amazonaws.com` or `amazonaws.com.cn`; statement Sids are alphanumeric and may not collide with the generated ones.
-- `bypass_policy_lockout_safety_check` defaults to false.
+- `bypass_policy_lockout_safety_check` defaults to false. Setting it to true triggers the advisory `policy_lockout_safety_check_bypassed` check on every plan and apply (root and replica), because a policy applied without the safety check that excludes the caller can only be recovered by AWS Support.
+- The rendered policy is checked against the KMS key policy size limit of 32 KB (32,768 bytes, measured in UTF-8 bytes) at plan time, so an oversized policy fails before it reaches KMS. A `policy_json_override` document is not measured.
+- `policy_json_override` must be a JSON document with a `Statement` element, as in `aws.modules.s3`.
 
 Key material
 
@@ -103,8 +108,8 @@ Not created here
 - Turning `enable_key_rotation` off on an existing key stops future rotations; past key material stays available for decryption.
 - Changing the policy inputs updates the policy in place. Renaming an alias destroys `aws_kms_alias.this["old"]` and creates `["new"]`; the other aliases are untouched.
 - A grant's `retire_on_delete` decides whether Terraform retires the grant (cooperative, what service-linked roles expect) or revokes it (immediate, the default) on destroy.
-- Two `check` blocks warn on every plan and apply but never block: `root_administration_disabled` and `rotation_disabled_for_symmetric_key`.
-- The `Name` tag is the first alias in sorted order, or the description when there is no alias, unless you set `Name` yourself. Caller tags are never overridden.
+- Three `check` blocks warn on every plan and apply but never block: `root_administration_disabled`, `policy_lockout_safety_check_bypassed`, and `rotation_disabled_for_symmetric_key`. `modules/replica` carries `policy_lockout_safety_check_bypassed` too.
+- The `Name` tag is the first alias in sorted order, or the description when there is no alias, unless you set `Name` yourself. A description used as the `Name` tag is truncated to its first 256 characters, the AWS tag value limit; the key's description itself is kept whole. Caller tags are never overridden.
 
 ## Testing
 

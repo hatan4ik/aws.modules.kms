@@ -14,15 +14,24 @@ provider "aws" {
   region = "eu-west-1"
 }
 
+# Declared once and passed to the primary and every replica, so the
+# independent key policies cannot drift apart.
+locals {
+  key_usage              = "ENCRYPT_DECRYPT"
+  key_administrator_arns = ["arn:aws:iam::123456789012:role/platform/kms-admin"]
+  key_user_arns          = ["arn:aws:iam::123456789012:role/orders-task"]
+}
+
 module "primary" {
   source = "git::https://github.com/hatan4ik/aws.modules.ksm.git?ref=<commit-sha>" # v1.0.0
 
   description  = "orders data key"
+  key_usage    = local.key_usage
   multi_region = true
   aliases      = ["orders/data"]
 
-  key_administrator_arns = ["arn:aws:iam::123456789012:role/platform/kms-admin"]
-  key_user_arns          = ["arn:aws:iam::123456789012:role/orders-task"]
+  key_administrator_arns = local.key_administrator_arns
+  key_user_arns          = local.key_user_arns
 }
 
 module "replica" {
@@ -32,20 +41,25 @@ module "replica" {
 
   primary_key_arn = module.primary.arn
   description     = "orders data key (eu-west-1 replica)"
+  key_usage       = local.key_usage
   aliases         = ["orders/data"]
 
-  key_administrator_arns = ["arn:aws:iam::123456789012:role/platform/kms-admin"]
-  key_user_arns          = ["arn:aws:iam::123456789012:role/orders-task"]
+  key_administrator_arns = local.key_administrator_arns
+  key_user_arns          = local.key_user_arns
 }
 ```
+
+> [!WARNING]
+> The replica's key policy is independent of the primary's: KMS does not copy or compare them, and this module cannot see the primary's inputs. A replica whose policy differs from the primary's plans and applies cleanly and fails only when a principal uses the key in the replica's Region, typically during a failover. Declare `key_usage` and every policy input once in `locals` and pass the same values to the primary and to every replica, as above and in [`examples/multi-region`](../../examples/multi-region).
 
 ## Behaviour
 
 - One replica per call. The replica shares the primary's key ID (`mrk-...`), key material, spec, and usage, and has its own Region, policy, aliases, tags, enabled state, and deletion window. Replicate into another Region with another call and another provider alias.
-- Policy. Composed by `modules/key-policy` from `enable_root_administration`, `key_administrator_arns`, `key_user_arns`, `key_service_principals`, and `policy_statements`, exactly as the root module does, with `multi_region = true` so administrators can replicate. The root principal is `arn:<partition>:iam::<account>:root` with both values parsed from `primary_key_arn`. `key_usage` selects the use actions and must match the primary; the module cannot read it without a lookup. `policy_json_override` applies a document verbatim and is exclusive with the typed inputs (a precondition on the replica key enforces it).
+- Policy. Composed by `modules/key-policy` from `enable_root_administration`, `key_administrator_arns`, `key_user_arns`, `key_service_principals`, and `policy_statements`, exactly as the root module does, with `multi_region = true` so administrators can replicate. The root principal is `arn:<partition>:iam::<account>:root` with both values parsed from `primary_key_arn`. `key_usage` is required, with no default: it selects the use actions and must equal the primary's usage, which the replica inherits and the module cannot read without a lookup. A wrong value is accepted by KMS and only fails when the replica is used. `policy_json_override` applies a document verbatim and is exclusive with the typed inputs (a precondition on the replica key enforces it).
 - Aliases. Alias names are Regional, so a replica needs its own; declare the same names as the primary to address the key identically in both Regions. Each becomes `aws_kms_alias.this["<name>"]`.
-- Name tag. The first alias in sorted order, or the description, unless the caller sets `Name`; caller tags are never overridden.
-- Validation. `primary_key_arn` must be a multi-Region key ARN (`key/mrk-<32 hex>`); `deletion_window_in_days` is 7 to 30; aliases may not start with `aws/` or carry the `alias/` prefix; principal ARNs and service principals are validated as in the root module.
+- Name tag. The first alias in sorted order, or the description truncated to 256 characters (the AWS tag value limit), unless the caller sets `Name`; caller tags are never overridden.
+- Advisory check. `policy_lockout_safety_check_bypassed` warns on every plan and apply while `bypass_policy_lockout_safety_check = true`.
+- Validation. `primary_key_arn` must be a multi-Region key ARN (`key/mrk-<32 hex>`); `deletion_window_in_days` is 7 to 30; aliases may not start with `aws/` or carry the `alias/` prefix; `policy_json_override` must be JSON with a `Statement` element; principal ARNs are validated as in the root module. `key_service_principals` and `policy_statements` are validated by `modules/key-policy`, the single owner of the policy rules, for the root and the replica alike.
 - Lifecycle. Destroying the replica schedules it for deletion in its Region only; the primary and other replicas are unaffected. Deleting a primary requires every replica to be deleted first, or a replica to be promoted with `kms:UpdatePrimaryRegion`.
 
 <!-- BEGIN_TF_DOCS -->
@@ -87,7 +101,7 @@ module "replica" {
 | <a name="input_enabled"></a> [enabled](#input\_enabled) | Whether the replica is enabled for cryptographic operations. | `bool` | `true` | no |
 | <a name="input_key_administrator_arns"></a> [key\_administrator\_arns](#input\_key\_administrator\_arns) | IAM principal ARNs that may administer the replica but not use it. See modules/key-policy for the action list. | `set(string)` | `[]` | no |
 | <a name="input_key_service_principals"></a> [key\_service\_principals](#input\_key\_service\_principals) | AWS service principals that may use the replica, keyed by principal, with optional actions and conditions. Same shape as the root module. | <pre>map(object({<br/>    actions = optional(set(string))<br/>    conditions = optional(list(object({<br/>      test     = string<br/>      variable = string<br/>      values   = set(string)<br/>    })), [])<br/>  }))</pre> | `{}` | no |
-| <a name="input_key_usage"></a> [key\_usage](#input\_key\_usage) | Cryptographic usage of the primary key: ENCRYPT\_DECRYPT, SIGN\_VERIFY, GENERATE\_VERIFY\_MAC, or KEY\_AGREEMENT. A replica inherits it from the primary; the module uses it only to select the use actions granted in the policy. | `string` | `"ENCRYPT_DECRYPT"` | no |
+| <a name="input_key_usage"></a> [key\_usage](#input\_key\_usage) | Cryptographic usage of the primary key: ENCRYPT\_DECRYPT, SIGN\_VERIFY, GENERATE\_VERIFY\_MAC, or KEY\_AGREEMENT. Required, with no default: a replica always inherits the primary's real usage, and this input only selects the use actions the replica policy grants, so a wrong value is accepted by KMS and surfaces only when the replica is used. Pass the primary's value, for example module.primary.key\_usage. | `string` | n/a | yes |
 | <a name="input_key_user_arns"></a> [key\_user\_arns](#input\_key\_user\_arns) | IAM principal ARNs that may use the replica with the actions of key\_usage and manage grants for AWS resources. | `set(string)` | `[]` | no |
 | <a name="input_policy_json_override"></a> [policy\_json\_override](#input\_policy\_json\_override) | Complete key policy JSON applied verbatim instead of the composed policy. Exclusive with key\_administrator\_arns, key\_user\_arns, key\_service\_principals, and policy\_statements. | `string` | `null` | no |
 | <a name="input_policy_statements"></a> [policy\_statements](#input\_policy\_statements) | Additional key policy statements keyed by Sid. Same shape as the root module; see modules/key-policy. | <pre>map(object({<br/>    effect     = optional(string, "Allow")<br/>    principals = map(set(string))<br/>    actions    = set(string)<br/>    resources  = optional(set(string), ["*"])<br/>    conditions = optional(list(object({<br/>      test     = string<br/>      variable = string<br/>      values   = set(string)<br/>    })), [])<br/>  }))</pre> | `{}` | no |

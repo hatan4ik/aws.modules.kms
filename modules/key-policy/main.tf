@@ -111,4 +111,11 @@ locals {
     Version   = "2012-10-17"
     Statement = local.statements
   })
+
+  # KMS limits a key policy to 32 KB (32768 bytes). length() counts
+  # characters, not bytes, so the UTF-8 size is recovered from the base64
+  # encoding: every 4 base64 characters are 3 bytes, minus the padding.
+  max_policy_bytes = 32768
+  json_base64      = base64encode(local.json)
+  json_bytes       = length(local.json_base64) / 4 * 3 - length(regexall("=", local.json_base64))
 }

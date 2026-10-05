@@ -78,9 +78,8 @@ variable "aliases" {
 # ---------------------------------------------------------------------------
 
 variable "key_usage" {
-  description = "Cryptographic usage of the primary key: ENCRYPT_DECRYPT, SIGN_VERIFY, GENERATE_VERIFY_MAC, or KEY_AGREEMENT. A replica inherits it from the primary; the module uses it only to select the use actions granted in the policy."
+  description = "Cryptographic usage of the primary key: ENCRYPT_DECRYPT, SIGN_VERIFY, GENERATE_VERIFY_MAC, or KEY_AGREEMENT. Required, with no default: a replica always inherits the primary's real usage, and this input only selects the use actions the replica policy grants, so a wrong value is accepted by KMS and surfaces only when the replica is used. Pass the primary's value, for example module.primary.key_usage."
   type        = string
-  default     = "ENCRYPT_DECRYPT"
   nullable    = false
 
   validation {
@@ -95,8 +94,8 @@ variable "policy_json_override" {
   default     = null
 
   validation {
-    condition     = var.policy_json_override == null ? true : can(jsondecode(var.policy_json_override))
-    error_message = "policy_json_override must be a valid JSON document."
+    condition     = var.policy_json_override == null ? true : can(jsondecode(var.policy_json_override).Statement)
+    error_message = "policy_json_override must be a JSON policy document with a Statement element."
   }
 }
 
@@ -131,6 +130,8 @@ variable "key_user_arns" {
   }
 }
 
+# Validated by modules/key-policy, the single owner of the policy rules, so
+# the root and replica cannot drift from the renderer or from each other.
 variable "key_service_principals" {
   description = "AWS service principals that may use the replica, keyed by principal, with optional actions and conditions. Same shape as the root module."
   type = map(object({
@@ -143,13 +144,10 @@ variable "key_service_principals" {
   }))
   default  = {}
   nullable = false
-
-  validation {
-    condition     = alltrue([for principal in keys(var.key_service_principals) : can(regex("^[a-z0-9][a-z0-9.-]*\\.amazonaws\\.com(\\.cn)?$", principal))])
-    error_message = "Every key_service_principals key must be an AWS service principal such as logs.amazonaws.com or logs.<region>.amazonaws.com."
-  }
 }
 
+# Validated by modules/key-policy, the single owner of the policy rules, so
+# the root and replica cannot drift from the renderer or from each other.
 variable "policy_statements" {
   description = "Additional key policy statements keyed by Sid. Same shape as the root module; see modules/key-policy."
   type = map(object({
@@ -165,9 +163,4 @@ variable "policy_statements" {
   }))
   default  = {}
   nullable = false
-
-  validation {
-    condition     = alltrue([for sid in keys(var.policy_statements) : can(regex("^[A-Za-z0-9]{1,100}$", sid)) && !contains(["EnableRootAccess", "AllowKeyAdministration", "AllowKeyUse", "AllowAttachmentOfPersistentResources"], sid) && !startswith(sid, "AllowServiceUse")])
-    error_message = "Every policy_statements key is a Sid: 1-100 letters or digits, not one of the generated Sids."
-  }
 }

@@ -305,38 +305,17 @@ run "rejects_user_that_is_not_an_iam_principal_arn" {
   expect_failures = [var.key_user_arns]
 }
 
-run "rejects_service_principal_outside_amazonaws" {
-  command = plan
-  variables {
-    key_service_principals = {
-      "logs.example.com" = {}
-    }
-  }
-  expect_failures = [var.key_service_principals]
-}
+# key_service_principals and policy_statements are validated by
+# modules/key-policy, the single owner of the policy rules. A failure there is
+# reported against this module's main.tf (the line that passes the input), but
+# terraform test can only expect failures of the module under test's own
+# checkable objects, so those rules are covered by
+# modules/key-policy/tests/key_policy.tftest.hcl.
 
-run "rejects_statement_with_reserved_sid" {
+run "rejects_policy_override_without_statement_element" {
   command = plan
   variables {
-    policy_statements = {
-      AllowKeyUse = {
-        principals = { AWS = ["arn:aws:iam::123456789012:role/reader"] }
-        actions    = ["kms:DescribeKey"]
-      }
-    }
+    policy_json_override = jsonencode({ Version = "2012-10-17" })
   }
-  expect_failures = [var.policy_statements]
-}
-
-run "rejects_unconditional_allow_to_wildcard_principal" {
-  command = plan
-  variables {
-    policy_statements = {
-      AllowAnyone = {
-        principals = { AWS = ["*"] }
-        actions    = ["kms:Decrypt"]
-      }
-    }
-  }
-  expect_failures = [var.policy_statements]
+  expect_failures = [var.policy_json_override]
 }

@@ -6,6 +6,47 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+**Major version bump (2.0.0).** `modules/replica` input `key_usage` no longer has a default. Root-module callers that do not use `modules/replica` are unaffected by that change; see the migration note below.
+
+### Changed
+
+- **Breaking (`modules/replica`):** `key_usage` is now a required input with no default (it previously defaulted to `ENCRYPT_DECRYPT`). A replica always inherits its primary's real cryptographic usage; this input only selects the use actions the replica policy grants. With the old default, a replica of a `SIGN_VERIFY`, `GENERATE_VERIFY_MAC`, or `KEY_AGREEMENT` primary whose caller forgot the input granted `key_user_arns` and default-action service principals Encrypt/Decrypt instead of the primary's actions. KMS accepts such a policy, plan and apply succeed, and the mismatch surfaced only when the replica was used, typically during a failover.
+
+  **Migration.** Every `modules/replica` call must now set `key_usage`. Set it to the primary's usage, ideally from the same value the primary uses (a shared local, or `module.<primary>.key_usage`):
+
+  ```hcl
+  locals {
+    key_usage = "ENCRYPT_DECRYPT" # the value the primary already uses
+  }
+
+  module "primary" {
+    # ...
+    key_usage = local.key_usage
+  }
+
+  module "replica" {
+    # ...
+    key_usage = local.key_usage
+  }
+  ```
+
+  A caller that relied on the default for an `ENCRYPT_DECRYPT` primary sets `key_usage = "ENCRYPT_DECRYPT"` and sees no plan change. A caller whose primary is not `ENCRYPT_DECRYPT` was running with a wrong replica policy: setting the correct value shows an in-place policy update on `aws_kms_replica_key.this` that swaps the granted use actions. Review it, and apply it, before relying on the replica.
+- `modules/key-policy` is now the single owner of the `statements` / `policy_statements` and `key_service_principals` validations. The root previously duplicated all ten of them and the replica two, with differently worded messages. The rules themselves are unchanged and still fail at plan time; the error is now reported by `modules/key-policy` against the caller's line that passes the input, and its messages name both `statements` and `policy_statements`. A root test that used `expect_failures = [var.policy_statements]` or `[var.key_service_principals]` for these rules no longer sees the failure on the root variable.
+- `policy_json_override` (root and replica) must now carry a `Statement` element, not just parse as JSON, matching `aws.modules.s3`. A document without `Statement` was always rejected by KMS at apply; it now fails at plan.
+- `examples/multi-region` declares `key_usage` and every policy input once in `locals` and passes the same values to the primary and the replica, and exposes `primary_policy` and `replica_policy` outputs.
+
+### Added
+
+- Advisory `check` `policy_lockout_safety_check_bypassed` in the root and `modules/replica`: warns on every plan and apply while `bypass_policy_lockout_safety_check = true`, the one setting whose misuse can lock a key until AWS Support recovers it. Non-blocking, like the existing checks.
+- `modules/key-policy` fails the plan when the rendered policy exceeds the KMS key policy limit of 32 KB (32,768 bytes, measured in UTF-8 bytes) instead of letting KMS reject it at apply. New output `size_bytes`.
+- `tests/multi_region_example.tftest.hcl` applies `examples/multi-region` against mock providers (nothing is created) and fails if the primary's and the replica's rendered policies differ.
+- README, `modules/replica/README.md`, and `docs/DESIGN.md` document that multi-Region primaries and replicas keep independent key policies and that keeping them in sync is the caller's responsibility. `docs/DESIGN.md` no longer claims the replica is created "with the same policy inputs" as the root.
+
+### Fixed
+
+- The `Name` tag falls back to the description when no alias is declared, but `description` allows 8192 characters while AWS caps tag values at 256. A description over 256 characters passed plan and failed at apply. The fallback is now truncated to the first 256 characters (root and replica); the key description itself is unchanged.
+- Stale version comments on the pinned actions in `.github/workflows/integration.yml` (`actions/checkout` is v7.0.1, `aws-actions/configure-aws-credentials` is v6.3.0).
+
 ## [1.0.0] - 2026-09-24
 
 Breaking release. One module call still provisions one key, but the policy is now composed from typed inputs, aliases are a set, and grants and multi-Region replicas are first-class. [docs/UPGRADE-1.0.md](docs/UPGRADE-1.0.md) maps every 0.1.x input to its replacement, lists what changes in place for an existing key, and gives the ready-to-paste `moved` block for the alias.

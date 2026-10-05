@@ -22,3 +22,13 @@ output "replica_alias_arn" {
   description = "ARN of the orders/data alias in the replica Region."
   value       = module.replica.alias_arns["orders/data"]
 }
+
+output "primary_policy" {
+  description = "Key policy applied to the primary key."
+  value       = module.primary.policy
+}
+
+output "replica_policy" {
+  description = "Key policy applied to the replica key. Must equal primary_policy; tests/multi_region_example.tftest.hcl guards it."
+  value       = module.replica.policy
+}

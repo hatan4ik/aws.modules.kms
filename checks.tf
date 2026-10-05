@@ -14,3 +14,10 @@ check "rotation_disabled_for_symmetric_key" {
     error_message = "Automatic rotation is disabled on a symmetric key that supports it. Enable enable_key_rotation unless a compliance regime requires manual rotation."
   }
 }
+
+check "policy_lockout_safety_check_bypassed" {
+  assert {
+    condition     = !var.bypass_policy_lockout_safety_check
+    error_message = "bypass_policy_lockout_safety_check is true: KMS will not verify that the caller can still administer the key under the new policy. A policy that locks the key out can only be recovered by AWS Support. Set it back to false unless this apply must install a policy that intentionally excludes the caller."
+  }
+}

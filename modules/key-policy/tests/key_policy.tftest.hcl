@@ -409,3 +409,45 @@ run "rejects_unconditional_allow_to_wildcard_principal" {
 
   expect_failures = [var.statements]
 }
+
+run "reports_the_policy_size_in_utf8_bytes" {
+  command = plan
+
+  variables {
+    statements = {
+      AllowTagged = {
+        principals = { AWS = ["arn:aws:iam::123456789012:role/reader"] }
+        actions    = ["kms:DescribeKey"]
+        conditions = [{ test = "StringEquals", variable = "aws:PrincipalTag/team", values = ["équipe"] }]
+      }
+    }
+  }
+
+  assert {
+    condition     = output.size_bytes == length(output.json) + 1
+    error_message = "size_bytes must count UTF-8 bytes, not characters: the two-byte e-acute adds one byte over the character count."
+  }
+}
+
+run "rejects_policy_larger_than_the_kms_limit" {
+  command = plan
+
+  variables {
+    key_user_arns = [for i in range(700) : "arn:aws:iam::123456789012:role/application-role-with-a-long-name-${i}"]
+  }
+
+  expect_failures = [output.json]
+}
+
+run "accepts_policy_just_under_the_kms_limit" {
+  command = plan
+
+  variables {
+    key_user_arns = [for i in range(150) : "arn:aws:iam::123456789012:role/application-role-with-a-long-name-${i}"]
+  }
+
+  assert {
+    condition     = output.size_bytes <= 32768 && output.size_bytes > 16384
+    error_message = "A large policy within the 32 KB limit must render."
+  }
+}
