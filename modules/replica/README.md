@@ -1,6 +1,6 @@
 # replica
 
-Creates one multi-Region replica of a KMS key in another Region, with its own key policy and aliases. It is a separate module because a replica lives in a different Region and therefore under a different provider configuration, which the caller passes with `providers = { aws = aws.<alias> }`. The root module creates the multi-Region primary; this module replicates it. The partition and account come from `primary_key_arn`, so the module performs no lookups.
+Creates one multi-Region replica of a KMS key in another Region, with its own key policy and aliases. It is a separate module because a replica lives in a different Region and therefore under a different provider configuration, which the caller passes with `providers = { aws = aws.<alias> }`. The root module creates the multi-Region primary; this module replicates it. The partition and account come from `primary_key_arn`, so the module performs no account or partition lookups; it reads `aws_partition` (no API call) only when a `cloudwatch-logs` or `secretsmanager` entry in `service_grants` needs the partition's DNS suffix, and fails the plan if that partition differs from the primary's.
 
 ## Usage
 
@@ -88,6 +88,7 @@ module "replica" {
 |------|------|
 | [aws_kms_alias.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/kms_alias) | resource |
 | [aws_kms_replica_key.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/kms_replica_key) | resource |
+| [aws_partition.current](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/partition) | data source |
 
 ## Inputs
 
@@ -103,9 +104,10 @@ module "replica" {
 | <a name="input_key_service_principals"></a> [key\_service\_principals](#input\_key\_service\_principals) | AWS service principals that may use the replica, keyed by principal, with optional actions and conditions. Same shape as the root module. | <pre>map(object({<br/>    actions = optional(set(string))<br/>    conditions = optional(list(object({<br/>      test     = string<br/>      variable = string<br/>      values   = set(string)<br/>    })), [])<br/>  }))</pre> | `{}` | no |
 | <a name="input_key_usage"></a> [key\_usage](#input\_key\_usage) | Cryptographic usage of the primary key: ENCRYPT\_DECRYPT, SIGN\_VERIFY, GENERATE\_VERIFY\_MAC, or KEY\_AGREEMENT. Required, with no default: a replica always inherits the primary's real usage, and this input only selects the use actions the replica policy grants, so a wrong value is accepted by KMS and surfaces only when the replica is used. Pass the primary's value, for example module.primary.key\_usage. | `string` | n/a | yes |
 | <a name="input_key_user_arns"></a> [key\_user\_arns](#input\_key\_user\_arns) | IAM principal ARNs that may use the replica with the actions of key\_usage and manage grants for AWS resources. | `set(string)` | `[]` | no |
-| <a name="input_policy_json_override"></a> [policy\_json\_override](#input\_policy\_json\_override) | Complete key policy JSON applied verbatim instead of the composed policy. Exclusive with key\_administrator\_arns, key\_user\_arns, key\_service\_principals, and policy\_statements. | `string` | `null` | no |
+| <a name="input_policy_json_override"></a> [policy\_json\_override](#input\_policy\_json\_override) | Complete key policy JSON applied verbatim instead of the composed policy. Exclusive with key\_administrator\_arns, key\_user\_arns, key\_service\_principals, policy\_statements, and service\_grants. | `string` | `null` | no |
 | <a name="input_policy_statements"></a> [policy\_statements](#input\_policy\_statements) | Additional key policy statements keyed by Sid. Same shape as the root module; see modules/key-policy. | <pre>map(object({<br/>    effect     = optional(string, "Allow")<br/>    principals = map(set(string))<br/>    actions    = set(string)<br/>    resources  = optional(set(string), ["*"])<br/>    conditions = optional(list(object({<br/>      test     = string<br/>      variable = string<br/>      values   = set(string)<br/>    })), [])<br/>  }))</pre> | `{}` | no |
-| <a name="input_primary_key_arn"></a> [primary\_key\_arn](#input\_primary\_key\_arn) | ARN of the multi-Region primary key to replicate (key ID starts with mrk-). The module derives the partition and account from it and performs no lookups. | `string` | n/a | yes |
+| <a name="input_primary_key_arn"></a> [primary\_key\_arn](#input\_primary\_key\_arn) | ARN of the multi-Region primary key to replicate (key ID starts with mrk-). The module derives the partition and account from it; the only lookup is aws\_partition, when a regional service\_grants preset needs the DNS suffix. | `string` | n/a | yes |
+| <a name="input_service_grants"></a> [service\_grants](#input\_service\_grants) | Pre-built statements for the AWS-documented minimum grant of a common KMS integration, keyed by Sid. Same shape as the root module; see modules/key-policy and docs/DESIGN.md (Service grant presets). A cloudwatch-logs or secretsmanager grant takes effect only on the key in its resource\_arn's Region, so pass the primary's service\_grants unchanged to keep the policies identical. | <pre>map(object({<br/>    service        = string<br/>    resource_arn   = string<br/>    principal_arns = optional(set(string))<br/>  }))</pre> | `{}` | no |
 | <a name="input_tags"></a> [tags](#input\_tags) | Tags applied to the replica key. The module adds a Name tag (first alias, or the description) unless you set one; caller tags are never overridden. | `map(string)` | `{}` | no |
 
 ## Outputs

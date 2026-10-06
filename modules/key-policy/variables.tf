@@ -189,7 +189,8 @@ variable "service_grants" {
   }
 
   # A log group ARN as CloudWatch Logs puts it in the encryption context:
-  # no trailing :* (aws_cloudwatch_log_group.arn has none since provider v5).
+  # no trailing :* (DescribeLogGroups adds one; aws_cloudwatch_log_group.arn
+  # strips it).
   # A * in the name selects ArnLike instead of ArnEquals.
   validation {
     condition     = alltrue([for grant in values(var.service_grants) : grant.service != "cloudwatch-logs" ? true : can(regex("^arn:aws(-[a-z]+)*:logs:[a-z]{2}(-[a-z]+)+-[0-9]+:[0-9]{12}:log-group:[A-Za-z0-9_/.#*-]{1,512}$", grant.resource_arn))])

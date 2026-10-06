@@ -56,7 +56,8 @@ the key's identifiers for them to reference.
   replica concerns are separate inputs and separate submodules.
 - **Dependency inversion.** The root depends on principal ARNs and account
   identifiers, never on how they were produced. The replica derives the
-  partition and account from `primary_key_arn` and performs no lookups.
+  partition and account from `primary_key_arn`; its only lookup is
+  `aws_partition`, for the DNS suffix of a regional `service_grants` preset.
 - **Clean, deterministic code.** Statements, principals, actions, resources,
   and condition values are sorted; conditions are grouped by operator; null
   and empty attributes never render. Every rule fails at plan time with a
@@ -67,7 +68,7 @@ the key's identifiers for them to reference.
 ```text
 root (one key)
 ├── modules/key-policy             pure: typed inputs -> key policy JSON (no resources, no provider)
-├── data.aws_partition.current     only when partition is null
+├── data.aws_partition.current     only when partition is null, or a regional service_grants preset needs dns_suffix
 ├── data.aws_caller_identity       only when account_id is null
 ├── aws_kms_key.this               spec/usage matrix, rotation, deletion window, multi-Region flag
 ├── aws_kms_alias.this[alias]      one resource per alias
@@ -75,6 +76,7 @@ root (one key)
 
 modules/replica (one replica key, provider passed by the caller)
 ├── modules/key-policy             the same renderer, partition and account parsed from primary_key_arn
+├── data.aws_partition.current     only when a regional service_grants preset needs dns_suffix
 ├── aws_kms_replica_key.this
 └── aws_kms_alias.this[alias]
 ```
@@ -112,8 +114,9 @@ accepts without complaint. Requiring the value makes every caller state it.
 ### Validation ownership
 
 `modules/key-policy` is the single owner of the policy rules for
-`statements` and `key_service_principals`. The root and the replica pass
-`policy_statements` and `key_service_principals` through to it without
+`statements`, `key_service_principals`, and `service_grants`. The root and the
+replica pass `policy_statements`, `key_service_principals`, and
+`service_grants` through to it without
 re-validating them, so the three modules cannot drift apart; Terraform reports
 a failure against the caller's line that passes the input. Inputs that the
 renderer does not see or that the root and replica use for other purposes
@@ -122,7 +125,7 @@ they are declared.
 
 ### Key policy renderer
 
-The renderer produces at most five kinds of statement, in this order, each
+The renderer produces at most six kinds of statement, in this order, each
 present only when its input is non-empty:
 
 | Sid | Principal | Actions | Condition |
@@ -132,6 +135,7 @@ present only when its input is non-empty:
 | `AllowKeyUse` | `key_user_arns` | The use actions for the key's `key_usage`: `kms:Encrypt`, `kms:Decrypt`, `kms:ReEncrypt*`, `kms:GenerateDataKey*`, `kms:DescribeKey` for `ENCRYPT_DECRYPT`; `kms:Sign`, `kms:Verify`, `kms:GetPublicKey`, `kms:DescribeKey` for `SIGN_VERIFY`; `kms:GenerateMac`, `kms:VerifyMac`, `kms:DescribeKey` for `GENERATE_VERIFY_MAC`; `kms:DeriveSharedSecret`, `kms:GetPublicKey`, `kms:DescribeKey` for `KEY_AGREEMENT` | none |
 | `AllowAttachmentOfPersistentResources` | `key_user_arns` | `kms:CreateGrant`, `kms:ListGrants`, `kms:RevokeGrant` | `Bool kms:GrantIsForAWSResource = true` |
 | `AllowServiceUse<Principal>` | one service principal each | the use actions above unless the entry overrides `actions` | the entry's `conditions` |
+| `<Sid>` from `service_grants` | the preset's grantee | the preset's documented actions | the preset's documented conditions; see [Service grant presets](#service-grant-presets) |
 | `<Sid>` from `policy_statements` | the entry's typed `principals` | the entry's `actions` | the entry's `conditions` |
 
 The renderer requires at least one statement: a key policy with none is
@@ -140,6 +144,125 @@ may not collide with the generated ones. The rendered document must also fit
 the KMS key policy limit of 32 KB (32,768 bytes); the renderer measures it in
 UTF-8 bytes and fails the plan when it is larger, rather than letting KMS
 reject it at apply.
+
+### Service grant presets
+
+`key_service_principals` and `policy_statements` can express any grant, which
+also means every consumer had to re-derive the same three statements by hand:
+CloudWatch Logs for encrypted log groups, CloudFront origin access control for
+an S3 origin encrypted with SSE-KMS, and Secrets Manager for secrets under a
+customer managed key. Each has a non-obvious detail that a hand-written
+statement gets wrong (a regional principal, an encryption-context key, a
+grantee that is not a service principal). `service_grants` renders each one
+from the minimum the caller must know: the resource the grant is for.
+
+```hcl
+service_grants = {
+  OrdersLogs = { service = "cloudwatch-logs", resource_arn = "arn:aws:logs:us-east-1:123456789012:log-group:/aws/ecs/orders" }
+  OrdersCdn  = { service = "cloudfront", resource_arn = "arn:aws:cloudfront::123456789012:distribution/E2QWRUHAPOMQZL" }
+  OrdersDb = {
+    service        = "secretsmanager"
+    resource_arn   = "arn:aws:secretsmanager:us-east-1:123456789012:secret:orders/db-??????"
+    principal_arns = ["arn:aws:iam::123456789012:role/orders-task"]
+  }
+}
+```
+
+| `service` | Grantee | Actions | Condition | AWS source |
+|---|---|---|---|---|
+| `cloudwatch-logs` | `Service: logs.<region>.<dns_suffix>` | `kms:Encrypt`, `kms:Decrypt`, `kms:ReEncrypt*`, `kms:GenerateDataKey*`, `kms:Describe*` | `ArnEquals` (`ArnLike` when the ARN has `*`) on `kms:EncryptionContext:aws:logs:arn` = `resource_arn` | CloudWatch Logs User Guide, *Encrypt log data in CloudWatch Logs using AWS KMS*, step 2 |
+| `cloudfront` | `Service: cloudfront.amazonaws.com` | `kms:Decrypt` | `StringEquals AWS:SourceArn` = `resource_arn` | CloudFront Developer Guide, *Restrict access to an Amazon S3 origin*, SSE-KMS; identical to `aws.modules.cloudfront`'s `required_kms_key_policy_json` |
+| `secretsmanager` | `AWS: principal_arns` | `kms:Decrypt`, `kms:Encrypt`, `kms:GenerateDataKey` | `StringEquals kms:ViaService` = `secretsmanager.<region>.<dns_suffix>`; `StringEquals` (`StringLike` when the ARN has `?` or `*`) on `kms:EncryptionContext:SecretARN` = `resource_arn` | Secrets Manager User Guide, *Secret encryption and decryption*: permissions for the KMS key, how Secrets Manager uses the key, encryption context |
+
+Why each preset is shaped the way it is:
+
+- **CloudWatch Logs.** The action list is the one AWS documents, verbatim
+  (`kms:Encrypt` and `kms:Decrypt`, not `Encrypt*`/`Decrypt*`). The principal
+  is regional and AWS requires it to be in the key's Region. The principal is
+  built as `logs.<region>.<dns_suffix>`, the same expression
+  `aws.modules.ecs` uses (`logs.${region}.${data.aws_partition.current.dns_suffix}`),
+  so it is correct in `aws-cn` (`amazonaws.com.cn`). CloudWatch Logs sends the
+  log group ARN as encryption context on every call; AWS's example for one log
+  group uses `ArnEquals`, and its example for a pattern uses `ArnLike`, which
+  is what the preset selects. The ARN is the bare log group ARN: a trailing
+  `:*` (the form the `DescribeLogGroups` API returns; the AWS provider's
+  `aws_cloudwatch_log_group.arn` strips it) never matches the encryption
+  context and is rejected.
+- **CloudFront.** AWS's generic example grants `kms:Decrypt`,
+  `kms:Encrypt`, and `kms:GenerateDataKey*` because OAC can also forward
+  `PUT`. The platform's `aws.modules.cloudfront` only reads
+  (`s3:GetObject` in its bucket statement), so the preset grants
+  `kms:Decrypt` only, matching that module's output exactly. A distribution
+  that writes through OAC needs the extra two actions in a
+  `policy_statements` entry. The distribution ARN may not contain a wildcard:
+  the distribution ID is what stops every other distribution, in any account,
+  from decrypting through the shared service principal. OAC exists only in
+  the `aws` partition, so other partitions are rejected.
+- **Secrets Manager.** Secrets Manager does **not** call KMS as
+  `secretsmanager.amazonaws.com`: "it acts on behalf of the user who is
+  accessing or updating the secret value", and CloudTrail records the caller
+  as the identity with `invokedBy: secretsmanager.amazonaws.com`. A key policy
+  statement for the `secretsmanager.amazonaws.com` service principal grants
+  nothing useful. The grantee is therefore the caller (`principal_arns`,
+  required for this preset and rejected for the other two), restricted the
+  way AWS restricts its own `aws/secretsmanager` key: `kms:ViaService` for
+  Secrets Manager in the secret's Region. The preset adds the encryption
+  context AWS documents, `SecretARN`, so the grant covers one secret rather
+  than every secret on the key. The actions are the operations Secrets Manager
+  calls with that encryption context: `GenerateDataKey` (create and put a
+  value, and the access validation when a key is set), `Decrypt` (get a
+  value, idempotency check, replication), and `Encrypt` (re-encrypting the
+  data keys when a secret is moved onto this key with `UpdateSecret`, and
+  replication). `kms:DescribeKey` is left out: Secrets Manager calls it only so
+  the console can list keys, without an encryption context, so it could never
+  satisfy this statement's condition. `kms:CallerAccount`, used by the
+  `aws/secretsmanager` policy because its principal is `*`, is redundant with
+  explicit principals and would break a cross-account reader, so it is not
+  added. A secret's ARN ends in a random six-character suffix that does not
+  exist until the secret does, and the secret needs the key first; `?` and
+  `*` are therefore allowed (`name-??????`) and switch the `SecretARN`
+  condition to `StringLike`, which keeps the key policy free of a dependency on
+  the secret.
+
+Why this interface:
+
+- **One map, keyed by Sid, like `policy_statements`.** The key is the
+  statement's Sid, so a grant is addressed and diffed by a name the caller
+  chose, several grants of the same service coexist (one per log group or
+  secret), and a Sid collision with `policy_statements` or a generated Sid
+  fails at plan.
+- **`service` is a validated enum, not three separate variables.** One
+  variable keeps the presets discoverable in one place and lets new presets
+  be added as new enum values without growing the root, replica, and renderer
+  interfaces three times.
+- **No `region` field.** The Region, account, and partition are read from
+  `resource_arn`, which already carries them. A separate `region` could
+  disagree with the ARN and render a principal in one Region and a condition
+  in another; deriving it makes that impossible.
+- **Fields that do not apply are rejected, not ignored.** `principal_arns` on
+  a service-principal preset is an error rather than silently dropped, so a
+  caller who expected it to restrict the grant finds out at plan.
+- **The DNS suffix comes from the provider, not a table.** The renderer is
+  pure and takes `dns_suffix` as an input (required only by the regional
+  presets). The root and the replica read it from `aws_partition`, which
+  makes no API call. This adds a conditional lookup to the replica, which
+  otherwise performs none, and runs the root's `aws_partition` even when
+  `partition` is passed; a precondition then requires the declared or
+  ARN-derived partition to match the provider's, so the suffix cannot come
+  from a different partition than the key.
+- **Plan-time rules.** Variable validations check each entry on its own
+  (Sid, `service`, the ARN format for that service, `principal_arns`).
+  Rules that span inputs are output preconditions in the renderer: the key
+  must be `ENCRYPT_DECRYPT`, `resource_arn` must be in the key's partition,
+  `dns_suffix` must be set for a regional preset, and Sids must not collide
+  with `statements`. The root adds a precondition that the key spec is
+  `SYMMETRIC_DEFAULT`, since all three services accept only symmetric
+  encryption keys.
+- **Multi-Region.** Pass the same `service_grants` to the primary and every
+  replica to keep the policies identical. A regional preset names the
+  Region of its `resource_arn`, so it takes effect only on the key in that
+  Region, which is also the only key CloudWatch Logs or Secrets Manager there
+  would use.
 
 ### Root interface (summary)
 
@@ -152,7 +275,8 @@ Optional groups (all default to a safe value):
   `is_enabled`, `bypass_policy_lockout_safety_check`, `custom_key_store_id`.
 - Policy: `account_id`, `partition`, `enable_root_administration`,
   `key_administrator_arns`, `key_user_arns`, `key_service_principals`,
-  `policy_statements`, or `policy_json_override` instead of all of them.
+  `service_grants`, `policy_statements`, or `policy_json_override` instead of
+  all of them.
 - Aliases: `aliases`.
 - Grants: `grants`.
 - `tags`.
@@ -211,7 +335,10 @@ Outputs expose every identifier a caller may need: `key_id`, `arn`,
   provider: defaults, each statement kind, condition grouping, sorting,
   service-principal Sids, Sid collisions, every `statements` and
   `key_service_principals` validation, the no-statement precondition, and the
-  32 KB size precondition.
+  32 KB size precondition. `service_grants.tftest.hcl` pins each preset's
+  rendered statement against the AWS-documented grant, the `ArnLike` and
+  `StringLike` switches, ordering, and every `service_grants` validation and
+  precondition.
 - `modules/replica/tests` cover the replica key, its derived partition and
   account, its aliases, and its validations.
 - Root `tests/` cover: secure defaults, every variable validation via
