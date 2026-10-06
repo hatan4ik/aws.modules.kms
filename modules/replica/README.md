@@ -23,7 +23,7 @@ locals {
 }
 
 module "primary" {
-  source = "git::https://github.com/hatan4ik/aws.modules.ksm.git?ref=<commit-sha>" # v1.0.0
+  source = "git::https://github.com/hatan4ik/aws.modules.kms.git?ref=<commit-sha>" # v1.0.0
 
   description  = "orders data key"
   key_usage    = local.key_usage
@@ -35,7 +35,7 @@ module "primary" {
 }
 
 module "replica" {
-  source = "git::https://github.com/hatan4ik/aws.modules.ksm.git//modules/replica?ref=<commit-sha>" # v1.0.0
+  source = "git::https://github.com/hatan4ik/aws.modules.kms.git//modules/replica?ref=<commit-sha>" # v1.0.0
 
   providers = { aws = aws.replica }
 

@@ -19,7 +19,7 @@ locals {
   name = "${var.name_prefix}-${random_id.suffix.hex}"
 
   tags = merge(var.tags, {
-    IntegrationTest = "aws.modules.ksm"
+    IntegrationTest = "aws.modules.kms"
     Disposable      = "true"
   })
 }

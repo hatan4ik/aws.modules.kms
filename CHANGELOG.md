@@ -37,6 +37,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Repository renamed from `aws.modules.ksm` to `aws.modules.kms`. GitHub redirects the old URL and keeps every tag and commit, so existing `git::https://github.com/hatan4ik/aws.modules.ksm.git?ref=<sha>` pins keep working; switch them to `aws.modules.kms` at your next upgrade. Docs, examples, issue templates, and the integration workflow's session name now use the new name. The integration OIDC subject is now `repo:hatan4ik/aws.modules.kms:environment:integration` (GitHub issues tokens under the current repository name), so an integration role trusted for the old subject must be updated.
 - `service_grants` (root, `modules/replica`, `modules/key-policy`): typed presets that render the AWS-documented minimum key policy grant for three integrations, keyed by Sid, from the ARN of the resource the grant is for. Additive and optional; an empty map (the default) renders exactly the policy it rendered before. See [docs/DESIGN.md](docs/DESIGN.md#service-grant-presets).
   - `cloudwatch-logs`: `logs.<region>.<dns_suffix>` gets `kms:Encrypt`, `kms:Decrypt`, `kms:ReEncrypt*`, `kms:GenerateDataKey*`, `kms:Describe*`, scoped by `ArnEquals` (or `ArnLike` for a `*` pattern) on `kms:EncryptionContext:aws:logs:arn` to the log group.
   - `cloudfront`: `cloudfront.amazonaws.com` gets `kms:Decrypt`, scoped by `AWS:SourceArn` to one distribution; identical to `aws.modules.cloudfront`'s `required_kms_key_policy_json`.
@@ -114,8 +115,8 @@ Breaking release. One module call still provisions one key, but the policy is no
 
 - Versioned module for one customer-managed KMS key with an optional alias, a caller-supplied `key_policy` or a root-only default policy, rotation on, and a 30-day deletion window.
 
-[Unreleased]: https://github.com/hatan4ik/aws.modules.ksm/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/hatan4ik/aws.modules.ksm/compare/v0.1.2...v1.0.0
-[0.1.2]: https://github.com/hatan4ik/aws.modules.ksm/compare/v0.1.1...v0.1.2
-[0.1.1]: https://github.com/hatan4ik/aws.modules.ksm/compare/v0.1.0...v0.1.1
-[0.1.0]: https://github.com/hatan4ik/aws.modules.ksm/releases/tag/v0.1.0
+[Unreleased]: https://github.com/hatan4ik/aws.modules.kms/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/hatan4ik/aws.modules.kms/compare/v0.1.2...v1.0.0
+[0.1.2]: https://github.com/hatan4ik/aws.modules.kms/compare/v0.1.1...v0.1.2
+[0.1.1]: https://github.com/hatan4ik/aws.modules.kms/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/hatan4ik/aws.modules.kms/releases/tag/v0.1.0

@@ -1,6 +1,6 @@
 # Complete key
 
-Every policy, alias, and grant feature of `aws.modules.ksm` in one call: a
+Every policy, alias, and grant feature of `aws.modules.kms` in one call: a
 symmetric key rotating every 180 days; declared administrators and users; the
 CloudWatch Logs service principal limited by an encryption-context condition to
 log groups under one prefix; a cross-account statement limited by

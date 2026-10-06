@@ -1,7 +1,7 @@
 # Multiple keys
 
 Creates a set of keys from one root module by using `for_each` on the module
-block. `aws.modules.ksm` provisions exactly one key per call on purpose: a key
+block. `aws.modules.kms` provisions exactly one key per call on purpose: a key
 is the unit that gets its own policy, aliases, grants, and deletion schedule,
 and a plan error names the one key that caused it. Sets of keys are therefore
 expressed in the caller, as a map of key specifications, not as a list inside

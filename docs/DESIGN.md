@@ -1,14 +1,16 @@
-# Design: aws.modules.ksm v1
+# Design: aws.modules.kms v1
 
 Status: accepted 2026-09-23. Supersedes the v0.1.x "raw policy string" design.
 
-The repository is named `ksm` for historical reasons and keeps that name. The
-module it contains manages AWS Key Management Service (KMS) resources and is
-documented as "aws.modules.ksm (AWS KMS)".
+The repository was created as `aws.modules.ksm` and renamed to
+`aws.modules.kms` on 2026-10-06. GitHub redirects the old URL and keeps every
+tag and commit, so existing `?ref=<commit-sha>` pins keep resolving; new pins
+should use the new URL. The resource names of the integration fixture keep the
+`ksm-it` prefix, which the integration role's permissions are scoped to.
 
 ## Purpose
 
-`aws.modules.ksm` provisions **one** customer-managed KMS key per module call
+`aws.modules.kms` provisions **one** customer-managed KMS key per module call
 together with the resources a key cannot be used without: a composed key
 policy, aliases, and grants. A separate submodule provisions a multi-Region
 replica of that key in another Region with its own policy and aliases. The

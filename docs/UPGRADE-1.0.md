@@ -37,7 +37,7 @@ A complete rewrite for a consumer whose 0.1.2 block was `module "key"` with `ali
 ```hcl
 # 0.1.2
 module "key" {
-  source = "git::https://github.com/hatan4ik/aws.modules.ksm.git?ref=<0.1.2-commit-sha>" # v0.1.2
+  source = "git::https://github.com/hatan4ik/aws.modules.kms.git?ref=<0.1.2-commit-sha>" # v0.1.2
 
   description = "Application data key"
   alias_name  = "orders/data"
@@ -46,7 +46,7 @@ module "key" {
 
 # 1.0.0
 module "key" {
-  source = "git::https://github.com/hatan4ik/aws.modules.ksm.git?ref=<commit-sha>" # v1.0.0
+  source = "git::https://github.com/hatan4ik/aws.modules.kms.git?ref=<commit-sha>" # v1.0.0
 
   description = "Application data key"
   aliases     = ["orders/data"]
@@ -69,7 +69,7 @@ A consumer that passed `key_policy` can keep its document unchanged through `pol
 
 ```hcl
 module "key" {
-  source = "git::https://github.com/hatan4ik/aws.modules.ksm.git?ref=<commit-sha>" # v1.0.0
+  source = "git::https://github.com/hatan4ik/aws.modules.kms.git?ref=<commit-sha>" # v1.0.0
 
   description          = "Application data key"
   aliases              = ["orders/data"]
@@ -81,7 +81,7 @@ or move the statements into the typed inputs so the module validates them and re
 
 ```hcl
 module "key" {
-  source = "git::https://github.com/hatan4ik/aws.modules.ksm.git?ref=<commit-sha>" # v1.0.0
+  source = "git::https://github.com/hatan4ik/aws.modules.kms.git?ref=<commit-sha>" # v1.0.0
 
   description = "Application data key"
   aliases     = ["orders/data"]

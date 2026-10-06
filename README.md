@@ -1,6 +1,6 @@
-# aws.modules.ksm (AWS KMS)
+# aws.modules.kms (AWS KMS)
 
-Provisions one customer-managed AWS KMS key per module call together with what a key cannot be used without: a composed key policy, aliases, and grants. A `replica` submodule creates a multi-Region replica of the key in another Region. The module is secure by default and explicit by declaration: rotation is on, the deletion window is the 30-day maximum, the policy always names a principal, and every administrator, user, service principal, extra statement, alias, and grant is a typed, validated input. The policy renderer is a pure submodule you can use on its own, and the whole policy can be replaced by a caller-supplied document without changing the module's outputs. The repository keeps its historical name `ksm`; the module manages KMS. Requires Terraform >= 1.7 and the AWS provider >= 6.35, < 7.
+Provisions one customer-managed AWS KMS key per module call together with what a key cannot be used without: a composed key policy, aliases, and grants. A `replica` submodule creates a multi-Region replica of the key in another Region. The module is secure by default and explicit by declaration: rotation is on, the deletion window is the 30-day maximum, the policy always names a principal, and every administrator, user, service principal, extra statement, alias, and grant is a typed, validated input. The policy renderer is a pure submodule you can use on its own, and the whole policy can be replaced by a caller-supplied document without changing the module's outputs. Requires Terraform >= 1.7 and the AWS provider >= 6.35, < 7.
 
 ## Why this module
 
@@ -19,7 +19,7 @@ What you get without setting anything beyond `description`:
 
 ```hcl
 module "orders_key" {
-  source = "git::https://github.com/hatan4ik/aws.modules.ksm.git?ref=<commit-sha>" # v1.0.0
+  source = "git::https://github.com/hatan4ik/aws.modules.kms.git?ref=<commit-sha>" # v1.0.0
 
   description = "Application data key for the orders service"
   aliases     = ["orders/data"]
@@ -168,11 +168,11 @@ Pin the full commit SHA of the release tag and record the tag in a comment, so t
 
 ```hcl
 module "orders_key" {
-  source = "git::https://github.com/hatan4ik/aws.modules.ksm.git?ref=<commit-sha>" # v1.0.0
+  source = "git::https://github.com/hatan4ik/aws.modules.kms.git?ref=<commit-sha>" # v1.0.0
 }
 
 module "orders_key_replica" {
-  source = "git::https://github.com/hatan4ik/aws.modules.ksm.git//modules/replica?ref=<commit-sha>" # v1.0.0
+  source = "git::https://github.com/hatan4ik/aws.modules.kms.git//modules/replica?ref=<commit-sha>" # v1.0.0
 }
 ```
 

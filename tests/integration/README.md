@@ -73,4 +73,4 @@ request by anyone with write access.
 For this repository's owner the environment is prepared with the sandbox
 region; the role ARN is added once the role exists in the sandbox account,
 created through the platform's delivery IAM module with the trust policy above
-and the subject `repo:hatan4ik/aws.modules.ksm:environment:integration`.
+and the subject `repo:hatan4ik/aws.modules.kms:environment:integration`.

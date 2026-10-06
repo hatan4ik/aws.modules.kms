@@ -30,7 +30,7 @@ run "setup" {
 
 run "smoke" {
   variables {
-    description             = "aws.modules.ksm integration ${run.setup.name}"
+    description             = "aws.modules.kms integration ${run.setup.name}"
     aliases                 = ["${run.setup.name}/data", "${run.setup.name}/data-v2"]
     deletion_window_in_days = 7
     tags                    = run.setup.tags

@@ -52,7 +52,7 @@ body:
       render: hcl
       placeholder: |
         module "key" {
-          source = "git::https://github.com/hatan4ik/aws.modules.ksm.git?ref=v1.0.0"
+          source = "git::https://github.com/hatan4ik/aws.modules.kms.git?ref=v1.0.0"
 
           description = "example"
         }

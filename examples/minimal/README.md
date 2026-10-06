@@ -1,6 +1,6 @@
 # Minimal key
 
-The smallest working call of `aws.modules.ksm`: one symmetric encryption key
+The smallest working call of `aws.modules.kms`: one symmetric encryption key
 with a description and one alias. Everything else keeps the module's secure
 defaults: automatic rotation, a 30-day deletion window, a policy that grants
 administration to the account root only, single-Region, enabled. The account

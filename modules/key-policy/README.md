@@ -6,7 +6,7 @@ Renders one KMS key policy document from typed inputs. It creates no resources a
 
 ```hcl
 module "key_policy" {
-  source = "git::https://github.com/hatan4ik/aws.modules.ksm.git//modules/key-policy?ref=<commit-sha>" # v1.0.0
+  source = "git::https://github.com/hatan4ik/aws.modules.kms.git//modules/key-policy?ref=<commit-sha>" # v1.0.0
 
   partition  = "aws"
   account_id = "123456789012"

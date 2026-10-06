@@ -1,6 +1,6 @@
 # Contributing
 
-Thank you for improving `aws.modules.ksm`. This guide covers the toolchain, the local quality gate, how features are tested and where they belong, commit and pull request conventions, and how releases are cut.
+Thank you for improving `aws.modules.kms`. This guide covers the toolchain, the local quality gate, how features are tested and where they belong, commit and pull request conventions, and how releases are cut.
 
 ## Development setup
 
@@ -107,7 +107,7 @@ Releases are cut by maintainers.
 2. Create a signed annotated tag on the merge commit. The signing key must be registered with GitHub so the tag shows as Verified:
 
    ```sh
-   git tag -s vX.Y.Z -m "aws.modules.ksm vX.Y.Z"
+   git tag -s vX.Y.Z -m "aws.modules.kms vX.Y.Z"
    git push origin vX.Y.Z
    ```
 
@@ -115,7 +115,7 @@ Releases are cut by maintainers.
 4. Announce the release with the commit SHA. Consumers pin that SHA, not the tag:
 
    ```hcl
-   source = "git::https://github.com/hatan4ik/aws.modules.ksm.git?ref=<commit-sha>" # vX.Y.Z
+   source = "git::https://github.com/hatan4ik/aws.modules.kms.git?ref=<commit-sha>" # vX.Y.Z
    ```
 
 Tags are never moved or deleted once published. A bad release is followed by a new patch release.
