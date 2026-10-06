@@ -13,6 +13,17 @@ variable "description" {
   }
 }
 
+variable "region" {
+  description = "Region where the KMS key, aliases, and grants are managed. Null preserves the provider's configured Region. Set this in a multi-Region composition when a regional service such as CloudWatch Logs must use a key outside the workload provider Region."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.region == null ? true : can(regex("^[a-z]{2}-(gov-|iso-|isob-)?[a-z]+-[0-9]$", var.region))
+    error_message = "region, when set, must be an AWS Region code such as us-east-1."
+  }
+}
+
 variable "key_usage" {
   description = "Cryptographic usage: ENCRYPT_DECRYPT, SIGN_VERIFY, GENERATE_VERIFY_MAC, or KEY_AGREEMENT. Must be compatible with key_spec (validated at plan time). Immutable."
   type        = string

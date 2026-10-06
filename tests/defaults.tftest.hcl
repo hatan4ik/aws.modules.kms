@@ -90,6 +90,30 @@ run "uses_declared_account_and_partition_without_lookups" {
   }
 }
 
+run "pins_every_regional_kms_resource" {
+  command = plan
+
+  variables {
+    region  = "us-east-1"
+    aliases = ["edge/waf-logs"]
+    grants = {
+      reader = {
+        grantee_principal = "arn:aws:iam::123456789012:role/log-reader"
+        operations        = ["Decrypt"]
+      }
+    }
+  }
+
+  assert {
+    condition = (
+      aws_kms_key.this.region == "us-east-1" &&
+      aws_kms_alias.this["edge/waf-logs"].region == "us-east-1" &&
+      aws_kms_grant.this["reader"].region == "us-east-1"
+    )
+    error_message = "An explicit region must pin the key and every child alias and grant."
+  }
+}
+
 run "names_the_key_after_the_first_alias" {
   command = plan
 
