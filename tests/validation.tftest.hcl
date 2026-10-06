@@ -26,6 +26,14 @@ run "rejects_empty_description" {
   expect_failures = [var.description]
 }
 
+run "rejects_malformed_region" {
+  command = plan
+  variables {
+    region = "US East (N. Virginia)"
+  }
+  expect_failures = [var.region]
+}
+
 run "rejects_unknown_key_usage" {
   command = plan
   variables {

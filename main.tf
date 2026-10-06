@@ -35,6 +35,7 @@ module "key_policy" {
 }
 
 resource "aws_kms_key" "this" {
+  region                             = var.region
   description                        = var.description
   key_usage                          = var.key_usage
   customer_master_key_spec           = var.key_spec
@@ -90,6 +91,7 @@ resource "aws_kms_key" "this" {
 resource "aws_kms_alias" "this" {
   for_each = var.aliases
 
+  region        = var.region
   name          = "alias/${each.key}"
   target_key_id = aws_kms_key.this.key_id
 }
@@ -97,6 +99,7 @@ resource "aws_kms_alias" "this" {
 resource "aws_kms_grant" "this" {
   for_each = var.grants
 
+  region                = var.region
   name                  = each.key
   key_id                = aws_kms_key.this.key_id
   grantee_principal     = each.value.grantee_principal
