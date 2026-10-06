@@ -278,3 +278,79 @@ run "grants_the_use_actions_of_the_declared_key_usage" {
     error_message = "The replica policy must grant the use actions of the declared key_usage, which must match the primary's."
   }
 }
+
+run "renders_service_grants_with_the_provider_dns_suffix" {
+  command = plan
+
+  override_data {
+    target = data.aws_partition.current[0]
+    values = {
+      partition  = "aws"
+      dns_suffix = "amazonaws.com"
+    }
+  }
+
+  variables {
+    service_grants = {
+      OrdersLogs = { service = "cloudwatch-logs", resource_arn = "arn:aws:logs:eu-west-1:123456789012:log-group:/aws/ecs/orders" }
+    }
+  }
+
+  assert {
+    condition     = jsondecode(aws_kms_replica_key.this.policy).Statement[1].Sid == "OrdersLogs" && jsondecode(aws_kms_replica_key.this.policy).Statement[1].Principal.Service == ["logs.eu-west-1.amazonaws.com"]
+    error_message = "The replica must render service_grants through the shared renderer with the DNS suffix of its provider's partition."
+  }
+
+  assert {
+    condition     = length(data.aws_partition.current) == 1
+    error_message = "A regional preset must trigger the replica's aws_partition lookup."
+  }
+}
+
+run "performs_no_lookup_without_regional_service_grants" {
+  command = plan
+
+  variables {
+    service_grants = {
+      OrdersCdn = { service = "cloudfront", resource_arn = "arn:aws:cloudfront::123456789012:distribution/E2QWRUHAPOMQZL" }
+    }
+  }
+
+  assert {
+    condition     = length(data.aws_partition.current) == 0
+    error_message = "The replica must perform no lookup unless a regional preset needs the DNS suffix."
+  }
+}
+
+run "rejects_a_provider_in_another_partition_than_the_primary" {
+  command = plan
+
+  override_data {
+    target = data.aws_partition.current[0]
+    values = {
+      partition  = "aws-cn"
+      dns_suffix = "amazonaws.com.cn"
+    }
+  }
+
+  variables {
+    service_grants = {
+      OrdersLogs = { service = "cloudwatch-logs", resource_arn = "arn:aws:logs:eu-west-1:123456789012:log-group:/aws/ecs/orders" }
+    }
+  }
+
+  expect_failures = [aws_kms_replica_key.this]
+}
+
+run "rejects_policy_override_combined_with_service_grants" {
+  command = plan
+
+  variables {
+    policy_json_override = "{\"Version\":\"2012-10-17\",\"Statement\":[]}"
+    service_grants = {
+      OrdersCdn = { service = "cloudfront", resource_arn = "arn:aws:cloudfront::123456789012:distribution/E2QWRUHAPOMQZL" }
+    }
+  }
+
+  expect_failures = [aws_kms_replica_key.this]
+}

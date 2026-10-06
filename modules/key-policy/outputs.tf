@@ -8,6 +8,26 @@ output "json" {
   }
 
   precondition {
+    condition     = length(var.service_grants) == 0 || var.key_usage == "ENCRYPT_DECRYPT"
+    error_message = "service_grants require key_usage ENCRYPT_DECRYPT: CloudWatch Logs, S3 SSE-KMS behind CloudFront, and Secrets Manager accept only symmetric encryption keys."
+  }
+
+  precondition {
+    condition     = !local.service_grants_need_dns_suffix || var.dns_suffix != null
+    error_message = "dns_suffix is required when service_grants contains a cloudwatch-logs or secretsmanager entry: it builds the regional service principal and the kms:ViaService endpoint. Pass data.aws_partition's dns_suffix (amazonaws.com in aws and aws-us-gov, amazonaws.com.cn in aws-cn)."
+  }
+
+  precondition {
+    condition     = length(local.service_grant_partition_mismatches) == 0
+    error_message = "service_grants ${join(", ", local.service_grant_partition_mismatches)}: the resource_arn partition must be the key's partition (${var.partition})."
+  }
+
+  precondition {
+    condition     = length(local.service_grant_sid_collisions) == 0
+    error_message = "service_grants and statements (policy_statements in the root and replica modules) share the Sid(s) ${join(", ", local.service_grant_sid_collisions)}; every Sid in a key policy must be unique."
+  }
+
+  precondition {
     condition     = local.json_bytes <= local.max_policy_bytes
     error_message = "The rendered key policy is ${local.json_bytes} bytes; KMS rejects key policies larger than ${local.max_policy_bytes} bytes (32 KB). Consolidate principals or statements, or split the access across grants."
   }

@@ -3,7 +3,7 @@
 # ---------------------------------------------------------------------------
 
 variable "primary_key_arn" {
-  description = "ARN of the multi-Region primary key to replicate (key ID starts with mrk-). The module derives the partition and account from it and performs no lookups."
+  description = "ARN of the multi-Region primary key to replicate (key ID starts with mrk-). The module derives the partition and account from it; the only lookup is aws_partition, when a regional service_grants preset needs the DNS suffix."
   type        = string
   nullable    = false
 
@@ -89,7 +89,7 @@ variable "key_usage" {
 }
 
 variable "policy_json_override" {
-  description = "Complete key policy JSON applied verbatim instead of the composed policy. Exclusive with key_administrator_arns, key_user_arns, key_service_principals, and policy_statements."
+  description = "Complete key policy JSON applied verbatim instead of the composed policy. Exclusive with key_administrator_arns, key_user_arns, key_service_principals, policy_statements, and service_grants."
   type        = string
   default     = null
 
@@ -160,6 +160,19 @@ variable "policy_statements" {
       variable = string
       values   = set(string)
     })), [])
+  }))
+  default  = {}
+  nullable = false
+}
+
+# Validated by modules/key-policy, the single owner of the policy rules, so
+# the root and replica cannot drift from the renderer or from each other.
+variable "service_grants" {
+  description = "Pre-built statements for the AWS-documented minimum grant of a common KMS integration, keyed by Sid. Same shape as the root module; see modules/key-policy and docs/DESIGN.md (Service grant presets). A cloudwatch-logs or secretsmanager grant takes effect only on the key in its resource_arn's Region, so pass the primary's service_grants unchanged to keep the policies identical."
+  type = map(object({
+    service        = string
+    resource_arn   = string
+    principal_arns = optional(set(string))
   }))
   default  = {}
   nullable = false

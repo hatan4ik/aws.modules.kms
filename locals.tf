@@ -5,6 +5,13 @@ locals {
   account_id = var.account_id != null ? var.account_id : data.aws_caller_identity.current[0].account_id
   partition  = var.partition != null ? var.partition : data.aws_partition.current[0].partition
 
+  # The regional presets in service_grants (CloudWatch Logs principal,
+  # Secrets Manager kms:ViaService) need the partition's DNS suffix, read
+  # from aws_partition exactly as aws.modules.ecs builds
+  # logs.<region>.<dns_suffix>. cloudfront grants do not.
+  service_grants_need_dns_suffix = anytrue([for grant in values(var.service_grants) : grant.service != "cloudfront"])
+  dns_suffix                     = local.service_grants_need_dns_suffix ? data.aws_partition.current[0].dns_suffix : null
+
   # AWS caps tag values at 256 characters while description allows 8192, so
   # the description is truncated when it stands in for the Name tag.
   name   = length(var.aliases) > 0 ? sort(tolist(var.aliases))[0] : substr(var.description, 0, 256)

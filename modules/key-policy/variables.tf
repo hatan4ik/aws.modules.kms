@@ -151,3 +151,68 @@ variable "statements" {
     error_message = "An Allow statement in statements (policy_statements in the root and replica modules) whose principals include * must carry at least one condition, otherwise anyone could use the key."
   }
 }
+
+variable "dns_suffix" {
+  description = "DNS suffix of the partition (amazonaws.com, amazonaws.com.cn, ...), the value of data.aws_partition's dns_suffix. Builds the regional CloudWatch Logs service principal and the Secrets Manager kms:ViaService endpoint for service_grants. Required only when service_grants contains a cloudwatch-logs or secretsmanager entry; the root and replica modules pass it from aws_partition."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.dns_suffix == null ? true : can(regex("^[a-z0-9-]+(\\.[a-z0-9-]+)+$", var.dns_suffix))
+    error_message = "dns_suffix must be a DNS suffix such as amazonaws.com or amazonaws.com.cn."
+  }
+}
+
+variable "service_grants" {
+  description = "Pre-built statements for the AWS-documented minimum grant of a common KMS integration, keyed by Sid (1-100 alphanumerics, not a generated Sid, not a statements key). service is cloudwatch-logs (resource_arn: log group ARN), cloudfront (resource_arn: distribution ARN, S3 origin with SSE-KMS through OAC), or secretsmanager (resource_arn: secret ARN, principal_arns: the IAM principals that read or write the secret). The region, account, and partition are read from resource_arn. See docs/DESIGN.md for the exact actions and conditions of each preset and the AWS documentation they follow."
+  type = map(object({
+    service        = string
+    resource_arn   = string
+    principal_arns = optional(set(string))
+  }))
+  default  = {}
+  nullable = false
+
+  validation {
+    condition     = alltrue([for sid in keys(var.service_grants) : can(regex("^[A-Za-z0-9]{1,100}$", sid))])
+    error_message = "Every service_grants key is a Sid and must be 1-100 letters or digits."
+  }
+
+  validation {
+    condition     = alltrue([for sid in keys(var.service_grants) : !contains(["EnableRootAccess", "AllowKeyAdministration", "AllowKeyUse", "AllowAttachmentOfPersistentResources"], sid) && !startswith(sid, "AllowServiceUse")])
+    error_message = "service_grants may not reuse a generated Sid: EnableRootAccess, AllowKeyAdministration, AllowKeyUse, AllowAttachmentOfPersistentResources, or AllowServiceUse*."
+  }
+
+  validation {
+    condition     = alltrue([for grant in values(var.service_grants) : contains(["cloudwatch-logs", "cloudfront", "secretsmanager"], grant.service)])
+    error_message = "service_grants service must be cloudwatch-logs, cloudfront, or secretsmanager."
+  }
+
+  # A log group ARN as CloudWatch Logs puts it in the encryption context:
+  # no trailing :* (aws_cloudwatch_log_group.arn has none since provider v5).
+  # A * in the name selects ArnLike instead of ArnEquals.
+  validation {
+    condition     = alltrue([for grant in values(var.service_grants) : grant.service != "cloudwatch-logs" ? true : can(regex("^arn:aws(-[a-z]+)*:logs:[a-z]{2}(-[a-z]+)+-[0-9]+:[0-9]{12}:log-group:[A-Za-z0-9_/.#*-]{1,512}$", grant.resource_arn))])
+    error_message = "A cloudwatch-logs service_grants resource_arn must be a log group ARN, arn:<partition>:logs:<region>:<account>:log-group:<name>, without a trailing :* (the encryption context carries the bare log group ARN). A * in the name is allowed and renders ArnLike."
+  }
+
+  # No wildcard: the distribution ID is what stops every other distribution
+  # in every account from decrypting through the same service principal.
+  validation {
+    condition     = alltrue([for grant in values(var.service_grants) : grant.service != "cloudfront" ? true : can(regex("^arn:aws:cloudfront::[0-9]{12}:distribution/[A-Z0-9]+$", grant.resource_arn))])
+    error_message = "A cloudfront service_grants resource_arn must be one distribution ARN, arn:aws:cloudfront::<account>:distribution/<ID>, without wildcards. CloudFront origin access control exists only in the aws partition."
+  }
+
+  # The secret ARN ends in a random six-character suffix that is unknown
+  # until the secret exists; ? and * allow name-?????? so the key policy does
+  # not depend on the secret that depends on the key.
+  validation {
+    condition     = alltrue([for grant in values(var.service_grants) : grant.service != "secretsmanager" ? true : can(regex("^arn:aws(-[a-z]+)*:secretsmanager:[a-z]{2}(-[a-z]+)+-[0-9]+:[0-9]{12}:secret:[A-Za-z0-9/_+=.@*?-]{1,512}$", grant.resource_arn))])
+    error_message = "A secretsmanager service_grants resource_arn must be a secret ARN, arn:<partition>:secretsmanager:<region>:<account>:secret:<name>-<suffix>. ? and * are allowed (for example name-??????) and render StringLike."
+  }
+
+  validation {
+    condition     = alltrue([for grant in values(var.service_grants) : grant.service == "secretsmanager" ? (grant.principal_arns == null ? false : length(grant.principal_arns) > 0 && alltrue([for arn in grant.principal_arns : can(regex("^arn:aws(-[a-z]+)*:(iam|sts)::[0-9]{12}:(root|user/.+|role/.+|assumed-role/.+|federated-user/.+)$", arn))])) : grant.principal_arns == null])
+    error_message = "service_grants principal_arns is required for secretsmanager (at least one IAM or STS principal ARN: Secrets Manager calls KMS with the caller's identity, not a service principal) and must be omitted for cloudwatch-logs and cloudfront (their service principal is the grantee)."
+  }
+}

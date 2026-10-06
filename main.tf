@@ -4,13 +4,15 @@
 # The one documented exception to the no-data-source rule: the account and
 # partition are needed for the root principal of the policy and nothing else
 # in the interface can supply them. Both lookups are skipped when the caller
-# passes account_id and partition.
+# passes account_id and partition. aws_partition also runs when a
+# cloudwatch-logs or secretsmanager service grant needs the partition's DNS
+# suffix; it makes no API call (it reads the provider's configuration).
 data "aws_caller_identity" "current" {
   count = var.account_id == null ? 1 : 0
 }
 
 data "aws_partition" "current" {
-  count = var.partition == null ? 1 : 0
+  count = var.partition == null || local.service_grants_need_dns_suffix ? 1 : 0
 }
 
 module "key_policy" {
@@ -27,6 +29,9 @@ module "key_policy" {
   key_user_arns              = var.key_user_arns
   key_service_principals     = var.key_service_principals
   statements                 = var.policy_statements
+
+  dns_suffix     = local.dns_suffix
+  service_grants = var.service_grants
 }
 
 resource "aws_kms_key" "this" {
@@ -66,8 +71,18 @@ resource "aws_kms_key" "this" {
     }
 
     precondition {
-      condition     = var.policy_json_override == null ? true : (length(var.key_administrator_arns) == 0 && length(var.key_user_arns) == 0 && length(var.key_service_principals) == 0 && length(var.policy_statements) == 0)
-      error_message = "policy_json_override replaces the composed policy. Remove key_administrator_arns, key_user_arns, key_service_principals, and policy_statements, or drop the override and declare the policy through them."
+      condition     = var.policy_json_override == null ? true : (length(var.key_administrator_arns) == 0 && length(var.key_user_arns) == 0 && length(var.key_service_principals) == 0 && length(var.policy_statements) == 0 && length(var.service_grants) == 0)
+      error_message = "policy_json_override replaces the composed policy. Remove key_administrator_arns, key_user_arns, key_service_principals, policy_statements, and service_grants, or drop the override and declare the policy through them."
+    }
+
+    precondition {
+      condition     = length(var.service_grants) == 0 || local.symmetric
+      error_message = "service_grants require key_spec SYMMETRIC_DEFAULT: CloudWatch Logs, S3 SSE-KMS behind CloudFront, and Secrets Manager accept only symmetric encryption keys."
+    }
+
+    precondition {
+      condition     = var.partition == null || length(data.aws_partition.current) == 0 ? true : data.aws_partition.current[0].partition == var.partition
+      error_message = "partition is declared as ${coalesce(var.partition, "null")} but the AWS provider is configured for ${try(data.aws_partition.current[0].partition, "unknown")}; service_grants read the DNS suffix from the provider's partition, so the two must agree."
     }
   }
 }
