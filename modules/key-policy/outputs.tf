@@ -9,7 +9,7 @@ output "json" {
 
   precondition {
     condition     = length(var.service_grants) == 0 || var.key_usage == "ENCRYPT_DECRYPT"
-    error_message = "service_grants require key_usage ENCRYPT_DECRYPT: CloudWatch Logs, S3 SSE-KMS behind CloudFront, and Secrets Manager accept only symmetric encryption keys."
+    error_message = "service_grants require key_usage ENCRYPT_DECRYPT: CloudWatch Logs, S3 SSE-KMS behind CloudFront, Secrets Manager, and EBS volumes launched by Auto Scaling accept only symmetric encryption keys."
   }
 
   precondition {

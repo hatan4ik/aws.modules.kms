@@ -9,7 +9,7 @@ locals {
   # Secrets Manager kms:ViaService) need the partition's DNS suffix, read
   # from aws_partition exactly as aws.modules.ecs builds
   # logs.<region>.<dns_suffix>. cloudfront grants do not.
-  service_grants_need_dns_suffix = anytrue([for grant in values(var.service_grants) : grant.service != "cloudfront"])
+  service_grants_need_dns_suffix = anytrue([for grant in values(var.service_grants) : contains(["cloudwatch-logs", "secretsmanager"], grant.service)])
   dns_suffix                     = local.service_grants_need_dns_suffix ? data.aws_partition.current[0].dns_suffix : null
 
   # AWS caps tag values at 256 characters while description allows 8192, so

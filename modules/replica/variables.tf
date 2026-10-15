@@ -171,7 +171,7 @@ variable "service_grants" {
   description = "Pre-built statements for the AWS-documented minimum grant of a common KMS integration, keyed by Sid. Same shape as the root module; see modules/key-policy and docs/DESIGN.md (Service grant presets). A cloudwatch-logs or secretsmanager grant takes effect only on the key in its resource_arn's Region, so pass the primary's service_grants unchanged to keep the policies identical."
   type = map(object({
     service        = string
-    resource_arn   = string
+    resource_arn   = optional(string)
     principal_arns = optional(set(string))
   }))
   default  = {}

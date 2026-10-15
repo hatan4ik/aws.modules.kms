@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **`service_grants` preset `autoscaling-ebs`.** Lets the account's Auto Scaling service-linked role (`AWSServiceRoleForAutoScaling`) use the key for the encrypted EBS volumes an Auto Scaling group launches, rendering the two statements the EC2 Auto Scaling User Guide documents ("Required AWS KMS key policy for use with encrypted volumes"): `<Sid>` (`kms:Encrypt`, `kms:Decrypt`, `kms:ReEncrypt*`, `kms:GenerateDataKey*`, `kms:DescribeKey`) and `<Sid>AttachPersistentResources` (`kms:CreateGrant` under `kms:GrantIsForAWSResource = true`). It takes no `resource_arn` and needs no DNS suffix. The service-linked role must exist before the key is applied. Backwards compatible: `service_grants[*].resource_arn` becomes `optional(string)`, still required, and still validated, for `cloudwatch-logs`, `cloudfront`, and `secretsmanager`. New minor version.
+
 **Major version bump (2.0.0).** `modules/replica` input `key_usage` no longer has a default. Root-module callers that do not use `modules/replica` are unaffected by that change; see the migration note below.
 
 ### Changed

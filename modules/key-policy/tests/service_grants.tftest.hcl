@@ -401,3 +401,188 @@ run "rejects_malformed_dns_suffix" {
 
   expect_failures = [var.dns_suffix]
 }
+
+# --- autoscaling-ebs: the EC2 Auto Scaling User Guide's "Required AWS KMS key
+# policy for use with encrypted volumes", rendered as its two statements.
+
+run "renders_the_autoscaling_ebs_preset_as_the_two_documented_statements" {
+  command = plan
+
+  variables {
+    service_grants = {
+      AutoScalingEbs = { service = "autoscaling-ebs" }
+    }
+  }
+
+  assert {
+    condition     = output.statement_count == 3 && [for statement in jsondecode(output.json).Statement : statement.Sid] == ["EnableRootAccess", "AutoScalingEbs", "AutoScalingEbsAttachPersistentResources"]
+    error_message = "autoscaling-ebs must render exactly two statements, <Sid> and <Sid>AttachPersistentResources, after the root statement."
+  }
+
+  assert {
+    condition = (
+      jsondecode(output.json).Statement[1].Principal == { AWS = ["arn:aws:iam::123456789012:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling"] } &&
+      jsondecode(output.json).Statement[2].Principal == { AWS = ["arn:aws:iam::123456789012:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling"] }
+    )
+    error_message = "Both statements must name the account's AWSServiceRoleForAutoScaling service-linked role, built from account_id and partition."
+  }
+
+  assert {
+    condition     = jsondecode(output.json).Statement[1].Action == ["kms:Decrypt", "kms:DescribeKey", "kms:Encrypt", "kms:GenerateDataKey*", "kms:ReEncrypt*"] && jsondecode(output.json).Statement[1].Resource == ["*"]
+    error_message = "The use statement must grant exactly the documented actions: kms:Encrypt, kms:Decrypt, kms:ReEncrypt*, kms:GenerateDataKey*, kms:DescribeKey."
+  }
+
+  assert {
+    condition     = !contains(keys(jsondecode(output.json).Statement[1]), "Condition")
+    error_message = "The use statement must have no Condition: kms:GrantIsForAWSResource is meaningful only for CreateGrant and would deny every use action."
+  }
+
+  assert {
+    condition     = jsondecode(output.json).Statement[2].Action == ["kms:CreateGrant"] && jsondecode(output.json).Statement[2].Condition == { Bool = { "kms:GrantIsForAWSResource" = ["true"] } }
+    error_message = "The grant statement must allow only kms:CreateGrant, only for AWS resources (kms:GrantIsForAWSResource = true)."
+  }
+}
+
+run "builds_the_service_linked_role_arn_in_the_keys_partition" {
+  command = plan
+
+  variables {
+    partition = "aws-us-gov"
+    service_grants = {
+      Ebs = { service = "autoscaling-ebs" }
+    }
+  }
+
+  assert {
+    condition     = jsondecode(output.json).Statement[1].Principal == { AWS = ["arn:aws-us-gov:iam::123456789012:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling"] }
+    error_message = "The service-linked role ARN must use the key's partition."
+  }
+}
+
+run "does_not_require_dns_suffix_for_autoscaling_ebs" {
+  command = plan
+
+  variables {
+    dns_suffix = null
+    service_grants = {
+      Ebs = { service = "autoscaling-ebs" }
+    }
+  }
+
+  assert {
+    condition     = output.statement_count == 3
+    error_message = "The preset uses a global service-linked role and must not need dns_suffix."
+  }
+}
+
+run "orders_the_grant_statement_after_the_other_presets" {
+  command = plan
+
+  variables {
+    service_grants = {
+      ZEbs  = { service = "autoscaling-ebs" }
+      ALogs = { service = "cloudwatch-logs", resource_arn = "arn:aws:logs:us-east-1:123456789012:log-group:a" }
+      MCdn  = { service = "cloudfront", resource_arn = "arn:aws:cloudfront::123456789012:distribution/E2QWRUHAPOMQZL" }
+    }
+  }
+
+  assert {
+    condition     = [for statement in jsondecode(output.json).Statement : statement.Sid] == ["EnableRootAccess", "ALogs", "MCdn", "ZEbs", "ZEbsAttachPersistentResources"]
+    error_message = "Presets render sorted by Sid, and each autoscaling-ebs grant statement follows them."
+  }
+}
+
+run "coexists_with_the_generated_user_grant_statement" {
+  command = plan
+
+  variables {
+    key_user_arns = ["arn:aws:iam::123456789012:role/orders-task"]
+    service_grants = {
+      Ebs = { service = "autoscaling-ebs" }
+    }
+  }
+
+  assert {
+    condition     = length(distinct([for statement in jsondecode(output.json).Statement : statement.Sid])) == length(jsondecode(output.json).Statement)
+    error_message = "Every Sid in the rendered policy must be unique."
+  }
+}
+
+run "rejects_resource_arn_on_autoscaling_ebs" {
+  command = plan
+
+  variables {
+    service_grants = {
+      Ebs = { service = "autoscaling-ebs", resource_arn = "arn:aws:autoscaling:us-east-1:123456789012:autoScalingGroup:x:autoScalingGroupName/y" }
+    }
+  }
+
+  expect_failures = [var.service_grants]
+}
+
+run "rejects_principal_arns_on_autoscaling_ebs" {
+  command = plan
+
+  variables {
+    service_grants = {
+      Ebs = { service = "autoscaling-ebs", principal_arns = ["arn:aws:iam::123456789012:role/orders-task"] }
+    }
+  }
+
+  expect_failures = [var.service_grants]
+}
+
+run "requires_resource_arn_for_the_resource_scoped_presets" {
+  command = plan
+
+  variables {
+    service_grants = {
+      Logs = { service = "cloudwatch-logs" }
+    }
+  }
+
+  expect_failures = [var.service_grants]
+}
+
+run "rejects_an_autoscaling_ebs_sid_too_long_for_its_second_statement" {
+  command = plan
+
+  variables {
+    service_grants = {
+      "A1234567890123456789012345678901234567890123456789012345678901234567890123456" = { service = "autoscaling-ebs" }
+    }
+  }
+
+  expect_failures = [var.service_grants]
+}
+
+run "rejects_the_generated_sid_colliding_with_a_statement" {
+  command = plan
+
+  variables {
+    statements = {
+      EbsAttachPersistentResources = {
+        principals = { AWS = ["arn:aws:iam::123456789012:role/reader"] }
+        actions    = ["kms:DescribeKey"]
+      }
+    }
+    service_grants = {
+      Ebs = { service = "autoscaling-ebs" }
+    }
+  }
+
+  expect_failures = [output.json]
+}
+
+run "rejects_the_generated_sid_colliding_with_another_grant" {
+  command = plan
+
+  variables {
+    service_grants = {
+      Ebs                          = { service = "autoscaling-ebs" }
+      EbsAttachPersistentResources = { service = "cloudwatch-logs", resource_arn = "arn:aws:logs:us-east-1:123456789012:log-group:a" }
+    }
+  }
+
+  expect_failures = [output.json]
+}

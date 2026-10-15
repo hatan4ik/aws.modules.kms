@@ -55,10 +55,15 @@ Instead of hand-writing the statements AWS documents for its most common integra
       resource_arn   = "arn:aws:secretsmanager:us-east-1:123456789012:secret:orders/db-??????"
       principal_arns = ["arn:aws:iam::123456789012:role/orders-task"]
     }
+
+    # The account's Auto Scaling service-linked role may use the key for EBS volumes an
+    # Auto Scaling group launches. Renders two statements, AutoScalingEbs and
+    # AutoScalingEbsAttachPersistentResources. No resource_arn; the role must already exist.
+    AutoScalingEbs = { service = "autoscaling-ebs" }
   }
 ```
 
-The map key is the statement's Sid. Region, account, and partition come from `resource_arn`. The exact actions and conditions of each preset, and the AWS documentation they follow, are in [docs/DESIGN.md](docs/DESIGN.md#service-grant-presets). The presets require a `SYMMETRIC_DEFAULT` key.
+The map key is the statement's Sid. Region, account, and partition come from `resource_arn`, or from the key's own account and partition for `autoscaling-ebs`, which has no resource. The exact actions and conditions of each preset, and the AWS documentation they follow, are in [docs/DESIGN.md](docs/DESIGN.md#service-grant-presets). The presets require a `SYMMETRIC_DEFAULT` key.
 
 ## Architecture
 
@@ -253,7 +258,7 @@ Apache-2.0. See [LICENSE](LICENSE).
 | <a name="input_policy_statements"></a> [policy\_statements](#input\_policy\_statements) | Additional key policy statements keyed by Sid (1-100 alphanumerics, not a generated Sid). principals maps AWS, Service, Federated, or CanonicalUser to identifiers; resources defaults to the key itself; an Allow to a wildcard principal must carry a condition. | <pre>map(object({<br/>    effect     = optional(string, "Allow")<br/>    principals = map(set(string))<br/>    actions    = set(string)<br/>    resources  = optional(set(string), ["*"])<br/>    conditions = optional(list(object({<br/>      test     = string<br/>      variable = string<br/>      values   = set(string)<br/>    })), [])<br/>  }))</pre> | `{}` | no |
 | <a name="input_region"></a> [region](#input\_region) | Region where the KMS key, aliases, and grants are managed. Null preserves the provider's configured Region. Set this in a multi-Region composition when a regional service such as CloudWatch Logs must use a key outside the workload provider Region. | `string` | `null` | no |
 | <a name="input_rotation_period_in_days"></a> [rotation\_period\_in\_days](#input\_rotation\_period\_in\_days) | Days between automatic rotations (90-2560). Null keeps the AWS default of 365. Requires enable\_key\_rotation. | `number` | `null` | no |
-| <a name="input_service_grants"></a> [service\_grants](#input\_service\_grants) | Pre-built statements for the AWS-documented minimum grant of a common KMS integration, keyed by Sid. service is cloudwatch-logs (resource\_arn: log group ARN), cloudfront (resource\_arn: distribution ARN, for an S3 origin encrypted with SSE-KMS behind origin access control), or secretsmanager (resource\_arn: secret ARN; principal\_arns: the IAM principals that read or write the secret). Region, account, and partition are read from resource\_arn. Requires a SYMMETRIC\_DEFAULT key. See docs/DESIGN.md (Service grant presets) for the exact actions and conditions. | <pre>map(object({<br/>    service        = string<br/>    resource_arn   = string<br/>    principal_arns = optional(set(string))<br/>  }))</pre> | `{}` | no |
+| <a name="input_service_grants"></a> [service\_grants](#input\_service\_grants) | Pre-built statements for the AWS-documented minimum grant of a common KMS integration, keyed by Sid. service is cloudwatch-logs (resource\_arn: log group ARN), cloudfront (resource\_arn: distribution ARN, for an S3 origin encrypted with SSE-KMS behind origin access control), secretsmanager (resource\_arn: secret ARN; principal\_arns: the IAM principals that read or write the secret), or autoscaling-ebs (no resource\_arn: lets the account's Auto Scaling service-linked role use the key for EBS volumes an Auto Scaling group launches; renders <Sid> and <Sid>AttachPersistentResources; the role must already exist). Region, account, and partition are read from resource\_arn, or from account\_id and partition for autoscaling-ebs. Requires a SYMMETRIC\_DEFAULT key. See docs/DESIGN.md (Service grant presets) for the exact actions and conditions. | <pre>map(object({<br/>    service        = string<br/>    resource_arn   = optional(string)<br/>    principal_arns = optional(set(string))<br/>  }))</pre> | `{}` | no |
 | <a name="input_tags"></a> [tags](#input\_tags) | Tags applied to the key. The module adds a Name tag (first alias, or the description) unless you set one; caller tags are never overridden. Aliases and grants do not support tags. | `map(string)` | `{}` | no |
 
 ## Outputs
