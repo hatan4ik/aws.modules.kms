@@ -6,9 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-10-15
+
 ### Added
 
 - **`service_grants` preset `autoscaling-ebs`.** Lets the account's Auto Scaling service-linked role (`AWSServiceRoleForAutoScaling`) use the key for the encrypted EBS volumes an Auto Scaling group launches, rendering the two statements the EC2 Auto Scaling User Guide documents ("Required AWS KMS key policy for use with encrypted volumes"): `<Sid>` (`kms:Encrypt`, `kms:Decrypt`, `kms:ReEncrypt*`, `kms:GenerateDataKey*`, `kms:DescribeKey`) and `<Sid>AttachPersistentResources` (`kms:CreateGrant` under `kms:GrantIsForAWSResource = true`). It takes no `resource_arn` and needs no DNS suffix. The service-linked role must exist before the key is applied. Backwards compatible: `service_grants[*].resource_arn` becomes `optional(string)`, still required, and still validated, for `cloudwatch-logs`, `cloudfront`, and `secretsmanager`. New minor version.
+
+### Changed
+
+- The committed provider lock file moves to `hashicorp/aws` 6.68.0 (Dependabot #8 and #9). The provider version constraint, `>= 6.35.0, < 7.0.0`, is unchanged.
+
+## [2.0.0] - 2026-10-06
 
 **Major version bump (2.0.0).** `modules/replica` input `key_usage` no longer has a default. Root-module callers that do not use `modules/replica` are unaffected by that change; see the migration note below.
 
@@ -120,7 +128,9 @@ Breaking release. One module call still provisions one key, but the policy is no
 
 - Versioned module for one customer-managed KMS key with an optional alias, a caller-supplied `key_policy` or a root-only default policy, rotation on, and a 30-day deletion window.
 
-[Unreleased]: https://github.com/hatan4ik/aws.modules.kms/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/hatan4ik/aws.modules.kms/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/hatan4ik/aws.modules.kms/compare/v2.0.0...v2.1.0
+[2.0.0]: https://github.com/hatan4ik/aws.modules.kms/compare/v1.0.0...v2.0.0
 [1.0.0]: https://github.com/hatan4ik/aws.modules.kms/compare/v0.1.2...v1.0.0
 [0.1.2]: https://github.com/hatan4ik/aws.modules.kms/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/hatan4ik/aws.modules.kms/compare/v0.1.0...v0.1.1
