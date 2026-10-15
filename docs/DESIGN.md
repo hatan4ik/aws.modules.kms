@@ -150,13 +150,16 @@ reject it at apply.
 ### Service grant presets
 
 `key_service_principals` and `policy_statements` can express any grant, which
-also means every consumer had to re-derive the same three statements by hand:
+also means every consumer had to re-derive the same four statements by hand:
 CloudWatch Logs for encrypted log groups, CloudFront origin access control for
-an S3 origin encrypted with SSE-KMS, and Secrets Manager for secrets under a
-customer managed key. Each has a non-obvious detail that a hand-written
-statement gets wrong (a regional principal, an encryption-context key, a
-grantee that is not a service principal). `service_grants` renders each one
-from the minimum the caller must know: the resource the grant is for.
+an S3 origin encrypted with SSE-KMS, Secrets Manager for secrets under a
+customer managed key, and the Auto Scaling service-linked role for encrypted
+EBS volumes. Each has a non-obvious detail that a hand-written statement gets
+wrong (a regional principal, an encryption-context key, a grantee that is not
+a service principal, a condition that belongs on one statement only).
+`service_grants` renders each one from the minimum the caller must know: the
+resource the grant is for, or nothing at all for the account-wide
+service-linked role.
 
 ```hcl
 service_grants = {
@@ -167,6 +170,7 @@ service_grants = {
     resource_arn   = "arn:aws:secretsmanager:us-east-1:123456789012:secret:orders/db-??????"
     principal_arns = ["arn:aws:iam::123456789012:role/orders-task"]
   }
+  AutoScalingEbs = { service = "autoscaling-ebs" }
 }
 ```
 
@@ -175,6 +179,7 @@ service_grants = {
 | `cloudwatch-logs` | `Service: logs.<region>.<dns_suffix>` | `kms:Encrypt`, `kms:Decrypt`, `kms:ReEncrypt*`, `kms:GenerateDataKey*`, `kms:Describe*` | `ArnEquals` (`ArnLike` when the ARN has `*`) on `kms:EncryptionContext:aws:logs:arn` = `resource_arn` | CloudWatch Logs User Guide, *Encrypt log data in CloudWatch Logs using AWS KMS*, step 2 |
 | `cloudfront` | `Service: cloudfront.amazonaws.com` | `kms:Decrypt` | `StringEquals AWS:SourceArn` = `resource_arn` | CloudFront Developer Guide, *Restrict access to an Amazon S3 origin*, SSE-KMS; identical to `aws.modules.cloudfront`'s `required_kms_key_policy_json` |
 | `secretsmanager` | `AWS: principal_arns` | `kms:Decrypt`, `kms:Encrypt`, `kms:GenerateDataKey` | `StringEquals kms:ViaService` = `secretsmanager.<region>.<dns_suffix>`; `StringEquals` (`StringLike` when the ARN has `?` or `*`) on `kms:EncryptionContext:SecretARN` = `resource_arn` | Secrets Manager User Guide, *Secret encryption and decryption*: permissions for the KMS key, how Secrets Manager uses the key, encryption context |
+| `autoscaling-ebs` | `AWS: arn:<partition>:iam::<account>:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling` | Statement `<Sid>`: `kms:Encrypt`, `kms:Decrypt`, `kms:ReEncrypt*`, `kms:GenerateDataKey*`, `kms:DescribeKey`. Statement `<Sid>AttachPersistentResources`: `kms:CreateGrant` | none on `<Sid>`; `Bool kms:GrantIsForAWSResource` = `true` on `<Sid>AttachPersistentResources` | EC2 Auto Scaling User Guide, *Required AWS KMS key policy for use with encrypted volumes* |
 
 Why each preset is shaped the way it is:
 
@@ -226,6 +231,26 @@ Why each preset is shaped the way it is:
   condition to `StringLike`, which keeps the key policy free of a dependency on
   the secret.
 
+- **Auto Scaling and EBS.** An Auto Scaling group launches instances whose
+  encrypted volumes are created by the Auto Scaling service-linked role, not
+  by the caller, so the role itself must be allowed to use the key and to
+  create the grants EBS attaches. AWS documents this as two statements and the
+  preset renders them as two: `kms:GrantIsForAWSResource` is meaningful only
+  for `kms:CreateGrant`, and put on the use actions it would deny every
+  request. The first statement carries the caller's Sid and the second is
+  `<Sid>AttachPersistentResources`, which is why an `autoscaling-ebs` Sid is
+  limited to 75 characters and why a collision with that generated Sid is
+  rejected. The grantee is account-wide, so the preset takes no
+  `resource_arn` (rejected when given) and needs no DNS suffix; `account_id`
+  and `partition`, which the key already has, are the whole scope. The
+  principal is the default role `AWSServiceRoleForAutoScaling`; an account
+  that uses a custom-suffixed service-linked role needs a `policy_statements`
+  entry instead. **The role must exist before KMS accepts a policy that names
+  it** (KMS rejects a key policy with a principal that does not exist). An
+  account that has never created an Auto Scaling group has no such role:
+  create it first with `aws_iam_service_linked_role` for
+  `autoscaling.amazonaws.com`, or the key apply fails.
+
 Why this interface:
 
 - **One map, keyed by Sid, like `policy_statements`.** The key is the
@@ -243,7 +268,10 @@ Why this interface:
   in another; deriving it makes that impossible.
 - **Fields that do not apply are rejected, not ignored.** `principal_arns` on
   a service-principal preset is an error rather than silently dropped, so a
-  caller who expected it to restrict the grant finds out at plan.
+  caller who expected it to restrict the grant finds out at plan. For the same
+  reason `resource_arn` is required by the three resource-scoped presets and
+  rejected by `autoscaling-ebs`; it is `optional(string)` in the type only so
+  that one object type can describe all four.
 - **The DNS suffix comes from the provider, not a table.** The renderer is
   pure and takes `dns_suffix` as an input (required only by the regional
   presets). The root and the replica read it from `aws_partition`, which

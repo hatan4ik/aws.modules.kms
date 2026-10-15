@@ -230,10 +230,10 @@ variable "policy_statements" {
 # Validated by modules/key-policy, the single owner of the policy rules, so
 # the root and replica cannot drift from the renderer or from each other.
 variable "service_grants" {
-  description = "Pre-built statements for the AWS-documented minimum grant of a common KMS integration, keyed by Sid. service is cloudwatch-logs (resource_arn: log group ARN), cloudfront (resource_arn: distribution ARN, for an S3 origin encrypted with SSE-KMS behind origin access control), or secretsmanager (resource_arn: secret ARN; principal_arns: the IAM principals that read or write the secret). Region, account, and partition are read from resource_arn. Requires a SYMMETRIC_DEFAULT key. See docs/DESIGN.md (Service grant presets) for the exact actions and conditions."
+  description = "Pre-built statements for the AWS-documented minimum grant of a common KMS integration, keyed by Sid. service is cloudwatch-logs (resource_arn: log group ARN), cloudfront (resource_arn: distribution ARN, for an S3 origin encrypted with SSE-KMS behind origin access control), secretsmanager (resource_arn: secret ARN; principal_arns: the IAM principals that read or write the secret), or autoscaling-ebs (no resource_arn: lets the account's Auto Scaling service-linked role use the key for EBS volumes an Auto Scaling group launches; renders <Sid> and <Sid>AttachPersistentResources; the role must already exist). Region, account, and partition are read from resource_arn, or from account_id and partition for autoscaling-ebs. Requires a SYMMETRIC_DEFAULT key. See docs/DESIGN.md (Service grant presets) for the exact actions and conditions."
   type = map(object({
     service        = string
-    resource_arn   = string
+    resource_arn   = optional(string)
     principal_arns = optional(set(string))
   }))
   default  = {}

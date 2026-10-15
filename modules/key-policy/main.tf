@@ -106,62 +106,119 @@ locals {
   # name one Region in its principal and another in its condition. The
   # actions and conditions, and the AWS pages they follow, are in
   # docs/DESIGN.md ("Service grant presets").
-  service_grant_arn_parts = { for sid, grant in var.service_grants : sid => split(":", grant.resource_arn) }
+  service_grant_arn_parts = { for sid, grant in var.service_grants : sid => split(":", grant.resource_arn) if grant.resource_arn != null }
   # A null dns_suffix with a regional preset fails the output precondition;
   # the placeholder only keeps the interpolation valid until it does.
   service_grant_dns_suffix = var.dns_suffix == null ? "dns-suffix-required" : var.dns_suffix
-  service_grant_wildcard   = { for sid, grant in var.service_grants : sid => length(regexall("[*?]", grant.resource_arn)) > 0 }
+  service_grant_wildcard   = { for sid, grant in var.service_grants : sid => length(regexall("[*?]", grant.resource_arn)) > 0 if grant.resource_arn != null }
 
-  service_grant_statements = [for sid in sort(keys(var.service_grants)) : (
-    var.service_grants[sid].service == "cloudwatch-logs" ? {
-      # The regional CloudWatch Logs principal, as aws.modules.ecs builds it:
-      # logs.<region>.<dns_suffix>. Scoped to one log group through the
-      # encryption context CloudWatch Logs sends on every call.
-      Sid       = sid
-      Effect    = "Allow"
-      Principal = { Service = ["logs.${local.service_grant_arn_parts[sid][3]}.${local.service_grant_dns_suffix}"] }
-      Action    = ["kms:Decrypt", "kms:Describe*", "kms:Encrypt", "kms:GenerateDataKey*", "kms:ReEncrypt*"]
-      Resource  = ["*"]
-      Condition = { (local.service_grant_wildcard[sid] ? "ArnLike" : "ArnEquals") = { "kms:EncryptionContext:aws:logs:arn" = [var.service_grants[sid].resource_arn] } }
-    } :
-    var.service_grants[sid].service == "cloudfront" ? {
-      # Read-only origin access control: CloudFront decrypts S3 objects for
-      # GET on behalf of this one distribution. Same statement as
-      # aws.modules.cloudfront's required_kms_key_policy_json.
-      Sid       = sid
-      Effect    = "Allow"
-      Principal = { Service = ["cloudfront.amazonaws.com"] }
-      Action    = ["kms:Decrypt"]
-      Resource  = ["*"]
-      Condition = { StringEquals = { "AWS:SourceArn" = [var.service_grants[sid].resource_arn] } }
-    } :
+  # The Auto Scaling service-linked role is a per-account singleton, so the
+  # autoscaling-ebs preset needs no resource ARN: account_id and partition are
+  # the whole scope. The role must exist before KMS accepts a policy that
+  # names it (see docs/DESIGN.md).
+  autoscaling_service_linked_role_arn = "arn:${var.partition}:iam::${var.account_id}:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling"
+  autoscaling_extra_sid_suffix        = "AttachPersistentResources"
+
+  # One preset renders one statement, except autoscaling-ebs, which renders
+  # two: the use actions and the grant must not share a condition, because
+  # kms:GrantIsForAWSResource applies to CreateGrant only and would deny every
+  # use action. The use statement is part of the chain below, keyed by the
+  # caller's Sid; the grant statement is rendered separately and follows the
+  # other presets.
+  #
+  # The statements are built in a map keyed by Sid and ordered afterwards:
+  # the use statement of autoscaling-ebs has no Condition, so it cannot be a
+  # branch of the conditional chain that the three resource-scoped presets
+  # share (every branch of a Terraform conditional must have the same shape).
+  service_grant_statement_by_sid = merge(
     {
-      # Secrets Manager calls KMS with the caller's identity, so the grantee
-      # is the caller, limited to requests that Secrets Manager makes in the
-      # secret's Region for this secret.
-      Sid       = sid
-      Effect    = "Allow"
-      Principal = { AWS = sort(tolist(coalesce(var.service_grants[sid].principal_arns, []))) }
-      Action    = ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey"]
-      Resource  = ["*"]
-      Condition = local.service_grant_wildcard[sid] ? {
-        StringEquals = { "kms:ViaService" = ["secretsmanager.${local.service_grant_arn_parts[sid][3]}.${local.service_grant_dns_suffix}"] }
-        StringLike   = { "kms:EncryptionContext:SecretARN" = [var.service_grants[sid].resource_arn] }
-        } : {
-        StringEquals = {
-          "kms:EncryptionContext:SecretARN" = [var.service_grants[sid].resource_arn]
-          "kms:ViaService"                  = ["secretsmanager.${local.service_grant_arn_parts[sid][3]}.${local.service_grant_dns_suffix}"]
+      for sid, grant in var.service_grants : sid => (
+        var.service_grants[sid].service == "cloudwatch-logs" ? {
+          # The regional CloudWatch Logs principal, as aws.modules.ecs builds it:
+          # logs.<region>.<dns_suffix>. Scoped to one log group through the
+          # encryption context CloudWatch Logs sends on every call.
+          Sid       = sid
+          Effect    = "Allow"
+          Principal = { Service = ["logs.${local.service_grant_arn_parts[sid][3]}.${local.service_grant_dns_suffix}"] }
+          Action    = ["kms:Decrypt", "kms:Describe*", "kms:Encrypt", "kms:GenerateDataKey*", "kms:ReEncrypt*"]
+          Resource  = ["*"]
+          Condition = { (local.service_grant_wildcard[sid] ? "ArnLike" : "ArnEquals") = { "kms:EncryptionContext:aws:logs:arn" = [var.service_grants[sid].resource_arn] } }
+        } :
+        var.service_grants[sid].service == "cloudfront" ? {
+          # Read-only origin access control: CloudFront decrypts S3 objects for
+          # GET on behalf of this one distribution. Same statement as
+          # aws.modules.cloudfront's required_kms_key_policy_json.
+          Sid       = sid
+          Effect    = "Allow"
+          Principal = { Service = ["cloudfront.amazonaws.com"] }
+          Action    = ["kms:Decrypt"]
+          Resource  = ["*"]
+          Condition = { StringEquals = { "AWS:SourceArn" = [var.service_grants[sid].resource_arn] } }
+        } :
+        {
+          # Secrets Manager calls KMS with the caller's identity, so the grantee
+          # is the caller, limited to requests that Secrets Manager makes in the
+          # secret's Region for this secret.
+          Sid       = sid
+          Effect    = "Allow"
+          Principal = { AWS = sort(tolist(coalesce(var.service_grants[sid].principal_arns, []))) }
+          Action    = ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey"]
+          Resource  = ["*"]
+          Condition = local.service_grant_wildcard[sid] ? {
+            StringEquals = { "kms:ViaService" = ["secretsmanager.${local.service_grant_arn_parts[sid][3]}.${local.service_grant_dns_suffix}"] }
+            StringLike   = { "kms:EncryptionContext:SecretARN" = [var.service_grants[sid].resource_arn] }
+            } : {
+            StringEquals = {
+              "kms:EncryptionContext:SecretARN" = [var.service_grants[sid].resource_arn]
+              "kms:ViaService"                  = ["secretsmanager.${local.service_grant_arn_parts[sid][3]}.${local.service_grant_dns_suffix}"]
+            }
+          }
         }
-      }
-    }
-  )]
+      ) if grant.service != "autoscaling-ebs"
+    },
+    {
+      # Exactly the first statement AWS documents under "Required AWS KMS key
+      # policy for use with encrypted volumes" (EC2 Auto Scaling User Guide):
+      # the service-linked role may use the key for the volumes it launches.
+      for sid, grant in var.service_grants : sid => {
+        Sid       = sid
+        Effect    = "Allow"
+        Principal = { AWS = [local.autoscaling_service_linked_role_arn] }
+        Action    = ["kms:Decrypt", "kms:DescribeKey", "kms:Encrypt", "kms:GenerateDataKey*", "kms:ReEncrypt*"]
+        Resource  = ["*"]
+      } if grant.service == "autoscaling-ebs"
+    },
+  )
+
+  service_grant_primary_statements = [for sid in sort(keys(var.service_grants)) : local.service_grant_statement_by_sid[sid]]
+
+  # The second documented autoscaling-ebs statement: the role may create the
+  # grants EBS needs, only for AWS resources.
+  service_grant_attach_statements = [for sid in sort(keys(var.service_grants)) : {
+    Sid       = "${sid}${local.autoscaling_extra_sid_suffix}"
+    Effect    = "Allow"
+    Principal = { AWS = [local.autoscaling_service_linked_role_arn] }
+    Action    = ["kms:CreateGrant"]
+    Resource  = ["*"]
+    Condition = { Bool = { "kms:GrantIsForAWSResource" = ["true"] } }
+  } if var.service_grants[sid].service == "autoscaling-ebs"]
+
+  service_grant_statements = concat(local.service_grant_primary_statements, local.service_grant_attach_statements)
 
   # Plan-time rules that span inputs, enforced by output preconditions.
-  service_grants_need_dns_suffix = anytrue([for grant in values(var.service_grants) : grant.service != "cloudfront"])
+  # Only the regional presets build a principal or kms:ViaService endpoint
+  # from the DNS suffix; cloudfront and autoscaling-ebs name global principals.
+  service_grants_need_dns_suffix = anytrue([for grant in values(var.service_grants) : contains(["cloudwatch-logs", "secretsmanager"], grant.service)])
   service_grant_partition_mismatches = sort([
     for sid, parts in local.service_grant_arn_parts : sid if parts[1] != var.partition
   ])
-  service_grant_sid_collisions = sort(setintersection(toset(keys(var.service_grants)), toset(keys(var.statements))))
+  # The second statement of an autoscaling-ebs preset is named by the module;
+  # it must not collide with any caller Sid either.
+  service_grant_generated_sids = [for sid, grant in var.service_grants : "${sid}${local.autoscaling_extra_sid_suffix}" if grant.service == "autoscaling-ebs"]
+  service_grant_sid_collisions = sort(distinct(concat(
+    tolist(setintersection(toset(keys(var.service_grants)), toset(keys(var.statements)))),
+    tolist(setintersection(toset(local.service_grant_generated_sids), toset(concat(keys(var.service_grants), keys(var.statements))))),
+  )))
 
   statements = concat(
     local.root_statements,

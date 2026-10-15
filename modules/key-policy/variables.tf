@@ -164,10 +164,10 @@ variable "dns_suffix" {
 }
 
 variable "service_grants" {
-  description = "Pre-built statements for the AWS-documented minimum grant of a common KMS integration, keyed by Sid (1-100 alphanumerics, not a generated Sid, not a statements key). service is cloudwatch-logs (resource_arn: log group ARN), cloudfront (resource_arn: distribution ARN, S3 origin with SSE-KMS through OAC), or secretsmanager (resource_arn: secret ARN, principal_arns: the IAM principals that read or write the secret). The region, account, and partition are read from resource_arn. See docs/DESIGN.md for the exact actions and conditions of each preset and the AWS documentation they follow."
+  description = "Pre-built statements for the AWS-documented minimum grant of a common KMS integration, keyed by Sid (1-100 alphanumerics, not a generated Sid, not a statements key). service is cloudwatch-logs (resource_arn: log group ARN), cloudfront (resource_arn: distribution ARN, S3 origin with SSE-KMS through OAC), secretsmanager (resource_arn: secret ARN, principal_arns: the IAM principals that read or write the secret), or autoscaling-ebs (no resource_arn: the account's Auto Scaling service-linked role, for EBS volumes launched by an Auto Scaling group; renders two statements, <Sid> and <Sid>AttachPersistentResources). The region, account, and partition are read from resource_arn, or from account_id and partition for autoscaling-ebs. See docs/DESIGN.md for the exact actions and conditions of each preset and the AWS documentation they follow."
   type = map(object({
     service        = string
-    resource_arn   = string
+    resource_arn   = optional(string)
     principal_arns = optional(set(string))
   }))
   default  = {}
@@ -184,8 +184,23 @@ variable "service_grants" {
   }
 
   validation {
-    condition     = alltrue([for grant in values(var.service_grants) : contains(["cloudwatch-logs", "cloudfront", "secretsmanager"], grant.service)])
-    error_message = "service_grants service must be cloudwatch-logs, cloudfront, or secretsmanager."
+    condition     = alltrue([for grant in values(var.service_grants) : contains(["cloudwatch-logs", "cloudfront", "secretsmanager", "autoscaling-ebs"], grant.service)])
+    error_message = "service_grants service must be cloudwatch-logs, cloudfront, secretsmanager, or autoscaling-ebs."
+  }
+
+  # autoscaling-ebs names no resource: the grantee is the account's Auto
+  # Scaling service-linked role, built from account_id and partition. Every
+  # other preset is scoped to one resource and needs its ARN.
+  validation {
+    condition     = alltrue([for grant in values(var.service_grants) : grant.service == "autoscaling-ebs" ? grant.resource_arn == null : grant.resource_arn != null])
+    error_message = "service_grants resource_arn is required for cloudwatch-logs, cloudfront, and secretsmanager, and must be omitted for autoscaling-ebs (its grantee is the account's Auto Scaling service-linked role, not a resource)."
+  }
+
+  # The second statement's Sid is <Sid>AttachPersistentResources, which must
+  # still fit the 100 character Sid limit.
+  validation {
+    condition     = alltrue([for sid, grant in var.service_grants : grant.service != "autoscaling-ebs" ? true : length(sid) <= 75])
+    error_message = "An autoscaling-ebs service_grants key is at most 75 characters: the preset also renders a statement named <Sid>AttachPersistentResources."
   }
 
   # A log group ARN as CloudWatch Logs puts it in the encryption context:
@@ -214,6 +229,6 @@ variable "service_grants" {
 
   validation {
     condition     = alltrue([for grant in values(var.service_grants) : grant.service == "secretsmanager" ? (grant.principal_arns == null ? false : length(grant.principal_arns) > 0 && alltrue([for arn in grant.principal_arns : can(regex("^arn:aws(-[a-z]+)*:(iam|sts)::[0-9]{12}:(root|user/.+|role/.+|assumed-role/.+|federated-user/.+)$", arn))])) : grant.principal_arns == null])
-    error_message = "service_grants principal_arns is required for secretsmanager (at least one IAM or STS principal ARN: Secrets Manager calls KMS with the caller's identity, not a service principal) and must be omitted for cloudwatch-logs and cloudfront (their service principal is the grantee)."
+    error_message = "service_grants principal_arns is required for secretsmanager (at least one IAM or STS principal ARN: Secrets Manager calls KMS with the caller's identity, not a service principal) and must be omitted for cloudwatch-logs, cloudfront, and autoscaling-ebs (their service principal or service-linked role is the grantee)."
   }
 }

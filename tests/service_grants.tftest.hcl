@@ -109,3 +109,23 @@ run "rejects_a_declared_partition_that_disagrees_with_the_provider" {
 
   expect_failures = [aws_kms_key.this]
 }
+
+run "renders_the_autoscaling_ebs_preset_without_a_resource_arn_or_dns_suffix" {
+  command = plan
+
+  variables {
+    service_grants = {
+      Ebs = { service = "autoscaling-ebs" }
+    }
+  }
+
+  assert {
+    condition     = [for statement in jsondecode(aws_kms_key.this.policy).Statement : statement.Sid] == ["EnableRootAccess", "Ebs", "EbsAttachPersistentResources"]
+    error_message = "autoscaling-ebs must render its use and grant statements through the root module."
+  }
+
+  assert {
+    condition     = jsondecode(aws_kms_key.this.policy).Statement[1].Principal == { AWS = ["arn:aws:iam::123456789012:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling"] }
+    error_message = "The service-linked role ARN must be built from the key's account and partition."
+  }
+}

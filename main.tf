@@ -78,7 +78,7 @@ resource "aws_kms_key" "this" {
 
     precondition {
       condition     = length(var.service_grants) == 0 || local.symmetric
-      error_message = "service_grants require key_spec SYMMETRIC_DEFAULT: CloudWatch Logs, S3 SSE-KMS behind CloudFront, and Secrets Manager accept only symmetric encryption keys."
+      error_message = "service_grants require key_spec SYMMETRIC_DEFAULT: CloudWatch Logs, S3 SSE-KMS behind CloudFront, Secrets Manager, and EBS volumes launched by Auto Scaling accept only symmetric encryption keys."
     }
 
     precondition {

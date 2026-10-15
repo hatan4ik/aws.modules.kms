@@ -19,7 +19,7 @@ locals {
   name   = length(var.aliases) > 0 ? sort(tolist(var.aliases))[0] : substr(var.description, 0, 256)
   policy = var.policy_json_override != null ? var.policy_json_override : module.key_policy[0].json
 
-  service_grants_need_dns_suffix = anytrue([for grant in values(var.service_grants) : grant.service != "cloudfront"])
+  service_grants_need_dns_suffix = anytrue([for grant in values(var.service_grants) : contains(["cloudwatch-logs", "secretsmanager"], grant.service)])
   dns_suffix                     = local.service_grants_need_dns_suffix ? data.aws_partition.current[0].dns_suffix : null
 }
 
